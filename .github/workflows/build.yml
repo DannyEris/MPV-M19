@@ -32,6 +32,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # 安装基础编译依赖并通过 pip3 升级 Meson (>=1.3.0) 与 Ninja
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -39,13 +40,14 @@ jobs:
           sudo pip3 install --upgrade meson ninja
           meson --version
 
+      # 规范化脚本换行符与执行权限
       - name: Grant Execute Permissions and Fix Line Endings
         run: |
           sed -i 's/\r$//' buildscripts/*.sh buildscripts/scripts/*.sh gradlew || true
           chmod -R +x buildscripts
           chmod +x gradlew
 
-      # 关键自愈步骤：自动恢复原版完整 strings.xml 并智能合并 TVBox 定制词条，彻底根除 AAPT 缺失报错
+      # 自动自愈与智能补全 strings.xml
       - name: Auto Heal & Merge String Resources
         run: |
           STRINGS_FILE="app/src/main/res/values/strings.xml"
@@ -106,19 +108,22 @@ jobs:
           print(f">> 成功确保 {added} 项 TVBox 定制词条合并入库。")
           EOF
 
+      # 链接宿主机 Android SDK
       - name: Prepare Environment & Link SDK
         run: |
           mkdir -p buildscripts/sdk
           ln -sf "$ANDROID_HOME" buildscripts/sdk/android-sdk-linux
 
+      # 关键修复：强制 IPv4 (-4)、无冗余日志 (-nv)、带超时与自动重试机制
       - name: Download SDK, NDK and Native Dependencies
         working-directory: buildscripts
         env:
           IN_CI: 1
-          WGET: wget -q --show-progress --progress=dot:giga --tries=5 -c
+          WGET: wget -4 -nv --tries=10 --timeout=30 --retry-connrefused --waitretry=3
         run: |
-          ./download.sh
+          ./download.sh || (echo ">> 检测到网络抖动，5秒后自动重试下载..." && sleep 5 && ./download.sh)
 
+      # 按需编译底层 C/C++ 库
       - name: Build Native Libraries
         working-directory: buildscripts
         run: |
@@ -137,14 +142,19 @@ jobs:
             ./buildall.sh --arch arm64 mpv
           fi
           
+          # 清理软链接避免 Gradle 搜集冲突
           rm -rf ../app/src/main/jniLibs
+          
+          # 仅编译 JNI 胶水库
           NO_GRADLE=1 ./buildall.sh -n
 
+      # 构建 Android Release APK
       - name: Build Android APK via Gradle
         run: |
           rm -rf app/src/main/jniLibs
           ./gradlew assembleDefaultRelease --stacktrace
 
+      # 签名并按选择过滤输出文件
       - name: Sign & Filter Release APKs
         run: |
           keytool -genkey -v -keystore release.jks -alias tvbox -keyalg RSA -keysize 2048 -validity 10000 -storepass 123456 -keypass 123456 -dname "CN=mpv, OU=tv, O=tv, L=SH, S=SH, C=CN"
