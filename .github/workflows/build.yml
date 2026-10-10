@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       target_arch:
-        description: '选择构建架构 (针对天猫魔盒M19请保持默认32位)'
+        description: '选择构建架构 (天猫魔盒M19请保持默认32位)'
         required: true
         default: '32位 (armeabi-v7a，天猫魔盒M19专用)'
         type: choice
@@ -40,8 +40,9 @@ jobs:
           sudo pip3 install --upgrade meson ninja
           meson --version
 
-      - name: Grant Execute Permissions
+      - name: Grant Execute Permissions and Fix Line Endings
         run: |
+          sed -i 's/\r$//' buildscripts/*.sh buildscripts/scripts/*.sh gradlew || true
           chmod -R +x buildscripts
           chmod +x gradlew
 
@@ -68,7 +69,7 @@ jobs:
           echo "Selected Choice: $CHOICE"
           
           if [[ "$CHOICE" == *"32位"* ]]; then
-            echo ">> 针对天猫魔盒 M19：仅编译 32 位 (armv7l)，大幅加速编译速度..."
+            echo ">> 针对天猫魔盒 M19：仅编译 32 位 (armv7l)..."
             ./buildall.sh --arch armv7l mpv
           elif [[ "$CHOICE" == *"64位"* ]]; then
             echo ">> 仅编译 64 位 (arm64)..."
@@ -79,10 +80,10 @@ jobs:
             ./buildall.sh --arch arm64 mpv
           fi
           
-          # 清理软链接防冲突
+          # 清理软链接避免 Gradle NPE
           rm -rf ../app/src/main/jniLibs
           
-          # 编译 JNI 胶水库
+          # 仅编译 JNI 胶水库
           NO_GRADLE=1 ./buildall.sh -n
 
       # 构建 Android Release APK
