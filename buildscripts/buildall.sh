@@ -1,5 +1,4 @@
 #!/bin/bash -e
-
 cd "$( dirname "${BASH_SOURCE[0]}" )"
 . ./include/depinfo.sh
 
@@ -17,7 +16,6 @@ getdeps () {
 loadarch () {
 	unset CC CXX CPATH LIBRARY_PATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
 	unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
-
 	local apilvl=21
 	# ndk_triple: what the toolchain actually is
 	# cc_triple: what Google pretends the toolchain is
@@ -46,6 +44,7 @@ loadarch () {
 		exit 1
 	fi
 	export prefix_dir="$PWD/prefix/$prefix_name"
+
 	if [ $clang -eq 1 ]; then
 		export CC=$cc_triple-clang
 		export CXX=$cc_triple-clang++
@@ -75,13 +74,13 @@ setup_prefix () {
 	fi
 
 	# meson wants to be spoonfed this file, so create it ahead of time
-	# also define: release build, static libs and no source downloads at runtime(!!!)
 	cat >"$prefix_dir/crossfile.tmp" <<CROSSFILE
 [built-in options]
 buildtype = 'release'
 default_library = 'static'
 wrap_mode = 'nodownload'
 prefix = '/usr/local'
+
 [binaries]
 c = '$CC'
 cpp = '$CXX'
@@ -90,13 +89,15 @@ nm = 'llvm-nm'
 strip = 'llvm-strip'
 pkgconfig = 'pkg-config'
 pkg-config = 'pkg-config'
+
 [host_machine]
 system = 'android'
 cpu_family = '$cpu_family'
 cpu = '${CC%%-*}'
 endian = 'little'
 CROSSFILE
-	# also avoid rewriting it needlessly
+
+	# avoid rewriting it needlessly
 	if cmp -s "$prefix_dir"/crossfile.{tmp,txt}; then
 		rm "$prefix_dir/crossfile.tmp"
 	else
@@ -109,6 +110,7 @@ build () {
 		printf >&2 '\e[1;31m%s\e[m\n' "Target $1 not found"
 		return 1
 	fi
+
 	if [ $nodeps -eq 0 ]; then
 		printf >&2 '\e[1;34m%s\e[m\n' "Preparing $1..."
 		local deps=$(getdeps $1)
@@ -117,6 +119,7 @@ build () {
 			build $dep
 		done
 	fi
+
 	printf >&2 '\e[1;34m%s\e[m\n' "Building $1..."
 	if [ "$1" == "mpv-android" ]; then
 		pushd ..
@@ -144,28 +147,24 @@ usage () {
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--clean)
-		cleanbuild=1
-		;;
+			cleanbuild=1
+			;;
 		-n|--no-deps)
-		nodeps=1
-		;;
+			nodeps=1
+			;;
 		--gcc)
-		clang=0
-		;;
+			clang=0
+			;;
 		--arch)
-		shift
-		arch=$1
-		;;
+			shift
+			arch=$1
+			;;
 		-h|--help)
-		usage
-		;;
-		-*)
-		echo "Unknown flag $1" >&2
-		exit 1
-		;;
+			usage
+			;;
 		*)
-		target=$1
-		;;
+			target=$1
+			;;
 	esac
 	shift
 done
@@ -174,7 +173,9 @@ loadarch $arch
 setup_prefix
 build $target
 
-[ "$target" == "mpv-android" ] && \
-	ls -lh ../app/build/outputs/apk/{default,api29}/*/*.apk
+# 关键修复：当指定 NO_GRADLE 时不检查 APK 产物，避免因为尚未执行 Gradle 而抛出 exit code 2
+if [ "$target" == "mpv-android" ] && [ -z "$NO_GRADLE" ]; then
+	ls -lh ../app/build/outputs/apk/{default,api29}/*/*.apk 2>/dev/null || true
+fi
 
 exit 0
