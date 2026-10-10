@@ -66,13 +66,15 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         val configDir = applicationContext.filesDir.path
         val cacheDir = applicationContext.cacheDir.path
 
-        // 关键修复：由 MPVView 驱动初始化并挂载 SurfaceHolder，确保画面能正确渲染输出
+        // 由 MPVView 驱动注册 Surface 回调，确保视频帧正常上屏
         binding.player.initialize(configDir, cacheDir)
         MPVLib.addObserver(this)
 
-        // 天猫魔盒 M19 (S912) 芯片优化配置
+        // 天猫魔盒 M19 (S912) 硬解与音频输出配置
         val hwdec = if (sharedPrefs.getBoolean("hardware_decoding", true)) "mediacodec" else "no"
         MPVLib.setOptionString("hwdec", hwdec)
+        MPVLib.setOptionString("hwdec-codecs", "all")
+        MPVLib.setOptionString("ao", "audiotrack")
 
         // 4K 网盘高码率与直播流网络缓冲设置
         MPVLib.setOptionString("demuxer-max-bytes", "${64 * 1024 * 1024}")
@@ -80,7 +82,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setOptionString("network-timeout", "25")
         MPVLib.setOptionString("tls-verify", "no")
 
-        // 初始化 HDR 映射状态
+        // 初始化 HDR 状态
         hdrMode = sharedPrefs.getInt("hdr_to_sdr_mode", 0)
         applyHdrMode(hdrMode, updateText = false)
     }
@@ -91,9 +93,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         intent?.let { handleIntent(it) }
     }
 
-    /**
-     * 全面解析 TVBox / MXPlayer 协议规范传入的 Intent、Headers、续播点
-     */
     private fun handleIntent(intent: Intent) {
         val uri: Uri? = intent.data
         if (uri == null) {
@@ -106,7 +105,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         introSkipped = false
         hasPlayedBeforeOutro = false
 
-        // 解析标题并生成独立的持久化记忆 Key（剥离动态验证 Token 参数）
         var title = intent.getStringExtra("title")
         if (title.isNullOrEmpty()) {
             title = uri.lastPathSegment ?: "Network Stream"
@@ -125,7 +123,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         var customUserAgent: String? = null
         var customReferer: String? = null
 
-        // 1. 数组格式 (MXPlayer 协议: ["Key", "Value", ...])
+        // 1. 数组格式
         val headersArray = intent.getStringArrayExtra("headers")
         if (headersArray != null && headersArray.size >= 2) {
             for (i in 0 until headersArray.size step 2) {
@@ -139,7 +137,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
         }
 
-        // 2. Bundle 扩展包格式
+        // 2. Bundle 格式
         val httpHeadersBundle = intent.getBundleExtra("android.media.intent.extra.HTTP_HEADERS")
             ?: intent.getBundleExtra("headers")
         httpHeadersBundle?.let { bundle ->
@@ -153,7 +151,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
         }
 
-        // 3. Map/Serializable 格式 (部分 TVBox 核心传递 HashMap)
+        // 3. Map 格式
         val headersMap = try {
             intent.getSerializableExtra("headers") as? Map<*, *>
         } catch (e: Exception) {
@@ -171,7 +169,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
         }
 
-        // 4. JSON 字符串格式 (部分代理接口传递)
+        // 4. JSON 格式
         val headersJsonStr = intent.getStringExtra("headers")
         if (!headersJsonStr.isNullOrEmpty() && headersJsonStr.trim().startsWith("{")) {
             try {
@@ -187,15 +185,14 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                     }
                 }
             } catch (e: Exception) {
-                // 忽略非 JSON 解析错误
+                // Ignore parse errors
             }
         }
 
-        // 5. 独立直接 Extra 参数
+        // 5. 显式 User-Agent 参数
         val explicitUa = intent.getStringExtra("User-Agent") ?: intent.getStringExtra("user_agent")
         if (!explicitUa.isNullOrEmpty()) customUserAgent = explicitUa
 
-        // 注入到 mpv 引擎
         if (!customUserAgent.isNullOrEmpty()) {
             MPVLib.setOptionString("user-agent", customUserAgent)
         }
@@ -206,7 +203,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             MPVLib.setOptionString("http-header-fields", headerList.joinToString(","))
         }
 
-        // 提取 TVBox 传入的续播断点时间 (毫秒)
+        // 提取 TVBox 传入的断点续播时间 (毫秒)
         val startPositionMs = intent.getIntExtra("position", 0).takeIf { it > 0 }?.toLong()
             ?: intent.getLongExtra("position", 0L)
         if (startPositionMs > 0L) {
@@ -214,21 +211,16 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             MPVLib.setOptionString("start", startSec.toString())
         }
 
-        // 启动加载播放
         MPVLib.command(arrayOf("loadfile", currentFilePath))
         showControls()
     }
 
     private fun setupUIControls() {
-        // 播放与暂停
         binding.playBtn.setOnClickListener {
-            val paused = MPVLib.getPropertyBoolean("pause") ?: false
-            MPVLib.setPropertyBoolean("pause", !paused)
-            updatePlayBtnState(!paused)
+            togglePlayPause()
             resetHideControlsTimer()
         }
 
-        // 进度条控制
         binding.playbackSeekbar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser && duration > 0) {
@@ -251,7 +243,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
         })
 
-        // HDR to SDR 切换
         binding.btnHdrMode.setOnClickListener {
             hdrMode = (hdrMode + 1) % 3
             sharedPrefs.edit().putInt("hdr_to_sdr_mode", hdrMode).apply()
@@ -259,31 +250,26 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             resetHideControlsTimer()
         }
 
-        // 画面比例切换
         binding.btnAspectRatio.setOnClickListener {
             cycleAspectRatio()
             resetHideControlsTimer()
         }
 
-        // 字幕控制弹窗
         binding.btnSubSettings.setOnClickListener {
             showSubtitleDialog()
             resetHideControlsTimer()
         }
 
-        // 音轨对话框
         binding.btnAudioTrack.setOnClickListener {
             showAudioTrackDialog()
             resetHideControlsTimer()
         }
 
-        // 视轨对话框
         binding.btnVideoTrack.setOnClickListener {
             showVideoTrackDialog()
             resetHideControlsTimer()
         }
 
-        // 片头设置与重置
         binding.btnIntro.setOnClickListener {
             skipIntroSec = currentPos
             sharedPrefs.edit().putInt("intro_${videoMemoryKey.hashCode()}", skipIntroSec).apply()
@@ -300,10 +286,9 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             true
         }
 
-        // 片尾设置与重置 (修复设点后立刻退出的死锁 Bug)
         binding.btnOutro.setOnClickListener {
             skipOutroSec = currentPos
-            hasPlayedBeforeOutro = false // 设点瞬间重置触发标记，防止立即退出
+            hasPlayedBeforeOutro = false
             sharedPrefs.edit().putInt("outro_${videoMemoryKey.hashCode()}", skipOutroSec).apply()
             updateIntroOutroButtonsText()
             Toast.makeText(this, getString(R.string.toast_outro_set, formatTime(skipOutroSec)), Toast.LENGTH_SHORT).show()
@@ -319,7 +304,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             true
         }
 
-        // 倍速选择
         binding.speedBtn.setOnClickListener {
             val speeds = arrayOf("0.75x", "1.0x", "1.25x", "1.5x", "2.0x")
             val speedValues = arrayOf(0.75, 1.0, 1.25, 1.5, 2.0)
@@ -337,17 +321,23 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         }
     }
 
+    private fun togglePlayPause() {
+        val paused = MPVLib.getPropertyBoolean("pause") ?: false
+        MPVLib.setPropertyBoolean("pause", !paused)
+        updatePlayBtnState(!paused)
+    }
+
     private fun updateIntroOutroButtonsText() {
-        if (skipIntroSec > 0) {
-            binding.btnIntro.text = "${getString(R.string.btn_skip_intro)}: ${formatTime(skipIntroSec)}"
+        binding.btnIntro.text = if (skipIntroSec > 0) {
+            "${getString(R.string.btn_skip_intro)}: ${formatTime(skipIntroSec)}"
         } else {
-            binding.btnIntro.text = getString(R.string.btn_skip_intro)
+            getString(R.string.btn_skip_intro)
         }
 
-        if (skipOutroSec > 0) {
-            binding.btnOutro.text = "${getString(R.string.btn_skip_outro)}: ${formatTime(skipOutroSec)}"
+        binding.btnOutro.text = if (skipOutroSec > 0) {
+            "${getString(R.string.btn_skip_outro)}: ${formatTime(skipOutroSec)}"
         } else {
-            binding.btnOutro.text = getString(R.string.btn_skip_outro)
+            getString(R.string.btn_skip_outro)
         }
     }
 
@@ -538,7 +528,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                         binding.playbackSeekbar.progress = progress
                     }
 
-                    // 自动跳过片头检查
                     if (!introSkipped && skipIntroSec > 0) {
                         if (sec < skipIntroSec) {
                             MPVLib.command(arrayOf("seek", skipIntroSec.toString(), "absolute"))
@@ -547,12 +536,11 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                         introSkipped = true
                     }
 
-                    // 自动跳过片尾检查：必须确认播放时间曾处在片尾之前，向后播入片尾区时才触发自动结束
                     if (skipOutroSec > 10) {
                         if (sec < skipOutroSec) {
                             hasPlayedBeforeOutro = true
                         } else if (hasPlayedBeforeOutro && sec >= skipOutroSec) {
-                            quitAndReturnResult()
+                            quitAndReturnResult(isCompleted = true)
                         }
                     }
                 }
@@ -587,7 +575,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             MPVLib.observeProperty("duration", MPVLib.mpvFormat.MPV_FORMAT_INT64)
             MPVLib.observeProperty("pause", MPVLib.mpvFormat.MPV_FORMAT_FLAG)
         } else if (eventId == MPVLib.mpvEventId.MPV_EVENT_END_FILE) {
-            runOnUiThread { quitAndReturnResult() }
+            runOnUiThread { quitAndReturnResult(isCompleted = true) }
         }
     }
 
@@ -612,9 +600,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         handler.postDelayed(hideControlsRunnable, 6000)
     }
 
-    /**
-     * 遥控器交互逻辑：仅在控制栏隐藏时拦截上下键调节音量，面板显示时放行让用户上下选按钮
-     */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN) {
             val isControlsShowing = (binding.controls.visibility == View.VISIBLE)
@@ -624,6 +609,12 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                         showControls()
                         return true
                     }
+                }
+                // 遥控器独立播放/暂停多媒体键
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                    togglePlayPause()
+                    showControls()
+                    return true
                 }
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
                     if (!isControlsShowing) {
@@ -660,7 +651,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                         hideControls()
                         return true
                     } else {
-                        quitAndReturnResult()
+                        quitAndReturnResult(isCompleted = false)
                         return true
                     }
                 }
@@ -670,11 +661,21 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         return super.dispatchKeyEvent(event)
     }
 
-    private fun quitAndReturnResult() {
-        val resultIntent = Intent("is.xyz.mpv.MPVActivity.result").apply {
+    override fun onBackPressed() {
+        if (binding.controls.visibility == View.VISIBLE) {
+            hideControls()
+        } else {
+            quitAndReturnResult(isCompleted = false)
+        }
+    }
+
+    private fun quitAndReturnResult(isCompleted: Boolean) {
+        val completed = isCompleted || (duration > 0 && currentPos >= (duration - 15))
+        val resultIntent = Intent().apply {
             data = Uri.parse(currentFilePath)
             putExtra("position", currentPos * 1000)
             putExtra("duration", duration * 1000)
+            putExtra("end_by", if (completed) "playback_completion" else "user")
         }
         setResult(Activity.RESULT_OK, resultIntent)
         finish()
