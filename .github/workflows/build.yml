@@ -1,7 +1,7 @@
 name: Build mpv-android for TVBox
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 仅保留手动在 Actions 页面点击 Run workflow 触发
 
 jobs:
   build:
@@ -23,30 +23,32 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf pkg-config libtool ninja-build unzip wget meson nasm yasm
+          sudo apt-get install -y autoconf pkg-config libtool ninja-build unzip wget meson nasm yasm apksigner
+
+      # 关键修复：递归给所有构建脚本和 gradlew 赋予执行权限 (+x)
+      - name: Grant Execute Permissions
+        run: |
+          chmod -R +x buildscripts
+          chmod +x gradlew
 
       - name: Download SDK, NDK and Native Dependencies
         working-directory: buildscripts
         run: |
           ./download.sh
 
-      - name: Build Native Libraries (arm64 and armv7l)
+      - name: Build Native Libraries
         working-directory: buildscripts
         run: |
           ./buildall.sh --arch arm64 mpv
           ./buildall.sh --arch armv7l mpv
-          # 核心修复：编译 JNI 胶水层库，将 libmpvandroid 注入工程
           ./buildall.sh -n
 
       - name: Build Android APK via Gradle
         run: |
-          chmod +x ./gradlew
           ./gradlew assembleDefaultRelease --stacktrace
 
       - name: Sign Release APKs
         run: |
-          # 为 TVBox 盒子端免授权安装进行自签名
-          sudo apt-get install -y apksigner
           keytool -genkey -v -keystore release.jks -alias tvbox -keyalg RSA -keysize 2048 -validity 10000 -storepass 123456 -keypass 123456 -dname "CN=mpv, OU=tv, O=tv, L=SH, S=SH, C=CN"
           for apk in app/build/outputs/apk/default/release/*-unsigned.apk; do
             if [ -f "$apk" ]; then
