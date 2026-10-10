@@ -1,0 +1,48 @@
+name: Build mpv-android for TVBox
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Native & APK
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf pkg-config libtool ninja-build unzip wget meson nasm yasm
+
+      - name: Download SDK, NDK and Native Dependencies
+        working-directory: buildscripts
+        run: |
+          ./download.sh
+
+      - name: Build Native Libraries (arm64-v8a for S912)
+        working-directory: buildscripts
+        run: |
+          ./buildall.sh --arch arm64 mpv
+          ./buildall.sh --arch armv7l mpv
+
+      - name: Build Android APK via Gradle
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDefaultRelease --stacktrace
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpv-tvbox-release
+          path: app/build/outputs/apk/default/release/*.apk
