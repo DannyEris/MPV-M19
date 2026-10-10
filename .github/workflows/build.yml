@@ -2,6 +2,17 @@ name: Build mpv-android for TVBox
 
 on:
   workflow_dispatch:
+    inputs:
+      target_arch:
+        description: '请选择生成的架构类型 (Select architecture)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'universal'
+          - 'arm64-v8a'
+          - 'armeabi-v7a'
 
 jobs:
   build:
@@ -21,7 +32,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 关键修复：移除 apt 的旧版 meson，改用 pip3 安装最新版本 Meson (>= 1.3.0)
+      # 使用 pip3 升级安装最新 Meson 与 Ninja，彻底解决 libplacebo 要求 Meson>=1.3.0 的报错
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -34,13 +45,13 @@ jobs:
           chmod -R +x buildscripts
           chmod +x gradlew
 
-      # 复用 GitHub 预装的 Android SDK 路径，避免重复下载
+      # 链接宿主机 Android SDK，避免重复下载
       - name: Prepare Environment & Link SDK
         run: |
           mkdir -p buildscripts/sdk
           ln -sf "$ANDROID_HOME" buildscripts/sdk/android-sdk-linux
 
-      # 下载必要依赖与 NDK
+      # 下载依赖，限制刷屏日志并增加自动重试
       - name: Download SDK, NDK and Native Dependencies
         working-directory: buildscripts
         env:
@@ -49,32 +60,68 @@ jobs:
         run: |
           ./download.sh
 
-      # 编译底层 libmpv 及 JNI 胶水层库
+      # 根据 workflow 输入选项按需编译对应架构，减少无效等待
       - name: Build Native Libraries
         working-directory: buildscripts
         run: |
-          ./buildall.sh --arch arm64 mpv
-          ./buildall.sh --arch armv7l mpv
+          TARGET="${{ github.event.inputs.target_arch || 'all' }}"
+          echo "Current Target Architecture: $TARGET"
+          
+          if [ "$TARGET" = "all" ] || [ "$TARGET" = "universal" ]; then
+            echo "Building both arm64 and armv7l..."
+            ./buildall.sh --arch arm64 mpv
+            ./buildall.sh --arch armv7l mpv
+          elif [ "$TARGET" = "arm64-v8a" ]; then
+            echo "Building arm64 only..."
+            ./buildall.sh --arch arm64 mpv
+          elif [ "$TARGET" = "armeabi-v7a" ]; then
+            echo "Building armv7l (32-bit) only..."
+            ./buildall.sh --arch armv7l mpv
+          fi
+          
+          # 编译 JNI 胶水层 (通过 DONT_BUILD_RELEASE 避免重复冗余编译)
+          export DONT_BUILD_RELEASE=1
           ./buildall.sh -n
 
-      # 构建 Android APK
+      # 构建 Android Release APK
       - name: Build Android APK via Gradle
         run: |
           ./gradlew assembleDefaultRelease --stacktrace
 
-      # 为 TVBox 外部安装自动生成证书签名
-      - name: Sign Release APKs
+      # 证书签名与输出过滤
+      - name: Sign & Filter Release APKs
         run: |
           keytool -genkey -v -keystore release.jks -alias tvbox -keyalg RSA -keysize 2048 -validity 10000 -storepass 123456 -keypass 123456 -dname "CN=mpv, OU=tv, O=tv, L=SH, S=SH, C=CN"
+          mkdir -p output_apks
+          
+          TARGET="${{ github.event.inputs.target_arch || 'all' }}"
+          echo "Filtering and signing for: $TARGET"
+          
           for apk in app/build/outputs/apk/default/release/*-unsigned.apk; do
             if [ -f "$apk" ]; then
-              out_apk="${apk/-unsigned.apk/-signed.apk}"
+              fname=$(basename "$apk")
+              
+              # 按目标选项过滤
+              if [ "$TARGET" = "arm64-v8a" ] && [[ "$fname" != *"arm64-v8a"* ]]; then
+                continue
+              fi
+              if [ "$TARGET" = "armeabi-v7a" ] && [[ "$fname" != *"armeabi-v7a"* ]]; then
+                continue
+              fi
+              if [ "$TARGET" = "universal" ] && [[ "$fname" != *"universal"* ]]; then
+                continue
+              fi
+              
+              out_apk="output_apks/${fname/-unsigned.apk/-signed.apk}"
               apksigner sign --ks release.jks --ks-pass pass:123456 --ks-key-alias tvbox --key-pass pass:123456 --out "$out_apk" "$apk"
+              echo "Output signed APK: $out_apk"
             fi
           done
+          
+          ls -lh output_apks/
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mpv-tvbox-release
-          path: app/build/outputs/apk/default/release/*-signed.apk
+          name: mpv-tvbox-${{ github.event.inputs.target_arch || 'all' }}
+          path: output_apks/*.apk
