@@ -1,4 +1,4 @@
-package is.xyz.mpv
+package `is`.xyz.mpv
 
 import android.app.Activity
 import android.app.AlertDialog
@@ -16,7 +16,7 @@ import android.view.WindowManager
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.preference.PreferenceManager
-import is.xyz.mpv.databinding.PlayerBinding
+import `is`.xyz.mpv.databinding.PlayerBinding
 import org.json.JSONObject
 import kotlin.math.roundToInt
 
@@ -118,7 +118,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         skipOutroSec = sharedPrefs.getInt("outro_${videoMemoryKey.hashCode()}", 0)
         updateIntroOutroButtonsText()
 
-        // 提取 TVBox 请求头
+        // 提取 TVBox 请求头 (兼容数组、Bundle、HashMap、JSON)
         val headerList = mutableListOf<String>()
         var customUserAgent: String? = null
         var customReferer: String? = null
@@ -132,7 +132,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 when {
                     k.equals("User-Agent", ignoreCase = true) -> customUserAgent = v
                     k.equals("Referer", ignoreCase = true) -> customReferer = v
-                    else -> headerList.add("$k: $v")
+                    else -> headerList.add("$k:$v")
                 }
             }
         }
@@ -146,7 +146,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 when {
                     k.equals("User-Agent", ignoreCase = true) -> customUserAgent = v
                     k.equals("Referer", ignoreCase = true) -> customReferer = v
-                    else -> headerList.add("$k: $v")
+                    else -> headerList.add("$k:$v")
                 }
             }
         }
@@ -164,7 +164,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 when {
                     key.equals("User-Agent", ignoreCase = true) -> customUserAgent = value
                     key.equals("Referer", ignoreCase = true) -> customReferer = value
-                    else -> headerList.add("$key: $value")
+                    else -> headerList.add("$key:$value")
                 }
             }
         }
@@ -181,7 +181,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                     when {
                         k.equals("User-Agent", ignoreCase = true) -> customUserAgent = v
                         k.equals("Referer", ignoreCase = true) -> customReferer = v
-                        else -> headerList.add("$k: $v")
+                        else -> headerList.add("$k:$v")
                     }
                 }
             } catch (e: Exception) {
@@ -329,13 +329,13 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
 
     private fun updateIntroOutroButtonsText() {
         binding.btnIntro.text = if (skipIntroSec > 0) {
-            "${getString(R.string.btn_skip_intro)}: ${formatTime(skipIntroSec)}"
+            "${getString(R.string.btn_skip_intro)}:${formatTime(skipIntroSec)}"
         } else {
             getString(R.string.btn_skip_intro)
         }
 
         binding.btnOutro.text = if (skipOutroSec > 0) {
-            "${getString(R.string.btn_skip_outro)}: ${formatTime(skipOutroSec)}"
+            "${getString(R.string.btn_skip_outro)}:${formatTime(skipOutroSec)}"
         } else {
             getString(R.string.btn_skip_outro)
         }
@@ -347,19 +347,19 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 MPVLib.setPropertyString("tone-mapping", "auto")
                 MPVLib.setPropertyString("target-trc", "auto")
                 MPVLib.setPropertyString("hdr-compute-peak", "no")
-                if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}: ${getString(R.string.hdr_auto)}"
+                if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}:${getString(R.string.hdr_auto)}"
             }
             1 -> {
                 MPVLib.setPropertyString("tone-mapping", "mobius")
                 MPVLib.setPropertyString("target-trc", "srgb")
                 MPVLib.setPropertyString("hdr-compute-peak", "no")
-                if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}: ${getString(R.string.hdr_on)}"
+                if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}:${getString(R.string.hdr_on)}"
             }
             2 -> {
                 MPVLib.setPropertyString("tone-mapping", "clip")
                 MPVLib.setPropertyString("target-trc", "auto")
                 MPVLib.setPropertyString("hdr-compute-peak", "no")
-                if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}: ${getString(R.string.hdr_off)}"
+                if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}:${getString(R.string.hdr_off)}"
             }
         }
     }
@@ -563,12 +563,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
 
     override fun eventProperty(property: String, value: String) {}
 
-    override fun eventProperty(property: String, value: Double) {
-        if (property == "time-pos" || property == "duration") {
-            eventProperty(property, value.toLong())
-        }
-    }
-
     override fun event(eventId: Int) {
         if (eventId == MPVLib.mpvEventId.MPV_EVENT_FILE_LOADED) {
             MPVLib.observeProperty("time-pos", MPVLib.mpvFormat.MPV_FORMAT_INT64)
@@ -610,7 +604,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                         return true
                     }
                 }
-                // 遥控器独立播放/暂停多媒体键
                 KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
                     togglePlayPause()
                     showControls()
