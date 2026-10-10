@@ -4,13 +4,12 @@
     android:layout_height="match_parent"
     android:background="@android:color/black">
 
-    <!-- 视频底层 SurfaceView 渲染窗口 -->
     <is.xyz.mpv.MPVView
         android:id="@+id/player"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 顶部标题与高级功能快捷栏 -->
+    <!-- 顶部状态与功能控制栏 -->
     <LinearLayout
         android:id="@+id/top_controls"
         android:layout_width="match_parent"
@@ -116,7 +115,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 底部进度控制与常用操作栏 -->
+    <!-- 底部控制栏 -->
     <LinearLayout
         android:id="@+id/controls"
         android:layout_width="match_parent"
