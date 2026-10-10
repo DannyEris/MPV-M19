@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -18,10 +17,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:background="#80000000"
+        android:background="#90000000"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:padding="10dp"
+        android:padding="12dp"
         android:visibility="gone"
         tools:visibility="visible">
 
@@ -38,10 +37,12 @@
 
         <Button
             android:id="@+id/btnHdrMode"
-            style="@style/Widget.AppCompat.Button.Borderless"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
+            android:background="@drawable/tv_btn_focus"
             android:focusable="true"
+            android:paddingLeft="10dp"
+            android:paddingRight="10dp"
             android:text="HDR: 自动"
             android:textColor="#FFCC00"
             android:textSize="13sp" />
@@ -53,9 +54,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="#A0000000"
+        android:background="#B0000000"
         android:orientation="vertical"
-        android:padding="8dp"
+        android:padding="10dp"
         android:visibility="gone"
         tools:visibility="visible">
 
@@ -71,7 +72,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="#FFFFFF"
-                android:textSize="13sp"
+                android:textSize="14sp"
                 tools:text="00:00" />
 
             <SeekBar
@@ -86,12 +87,12 @@
                 android:id="@+id/timeDuration"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="#AAAAAA"
-                android:textSize="13sp"
+                android:textColor="#CCCCCC"
+                android:textSize="14sp"
                 tools:text="00:00" />
         </LinearLayout>
 
-        <!-- 播放控制主要按钮行 (针对魔盒遥控器优化水平横排按键) -->
+        <!-- 针对电视遥控器排布的按键区 -->
         <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -103,13 +104,15 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:orientation="horizontal"
+                android:paddingTop="4dp">
 
                 <Button
                     android:id="@+id/playBtn"
-                    style="@style/Widget.AppCompat.Button.Borderless"
                     android:layout_width="wrap_content"
                     android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
                     android:focusable="true"
                     android:text="@string/btn_play"
                     android:textColor="#FFFFFF"
@@ -117,9 +120,10 @@
 
                 <Button
                     android:id="@+id/btnAspectRatio"
-                    style="@style/Widget.AppCompat.Button.Borderless"
                     android:layout_width="wrap_content"
                     android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
                     android:focusable="true"
                     android:text="@string/btn_aspect_ratio"
                     android:textColor="#FFFFFF"
@@ -127,9 +131,10 @@
 
                 <Button
                     android:id="@+id/btnSubSettings"
-                    style="@style/Widget.AppCompat.Button.Borderless"
                     android:layout_width="wrap_content"
                     android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
                     android:focusable="true"
                     android:text="@string/btn_subtitle_settings"
                     android:textColor="#FFFFFF"
@@ -137,9 +142,10 @@
 
                 <Button
                     android:id="@+id/btnAudioTrack"
-                    style="@style/Widget.AppCompat.Button.Borderless"
                     android:layout_width="wrap_content"
                     android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
                     android:focusable="true"
                     android:text="@string/btn_audio_track"
                     android:textColor="#FFFFFF"
@@ -147,9 +153,10 @@
 
                 <Button
                     android:id="@+id/btnVideoTrack"
-                    style="@style/Widget.AppCompat.Button.Borderless"
                     android:layout_width="wrap_content"
                     android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
                     android:focusable="true"
                     android:text="@string/btn_video_track"
                     android:textColor="#FFFFFF"
@@ -157,29 +164,31 @@
 
                 <Button
                     android:id="@+id/btnIntro"
-                    style="@style/Widget.AppCompat.Button.Borderless"
                     android:layout_width="wrap_content"
                     android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
                     android:focusable="true"
                     android:text="@string/btn_skip_intro"
-                    android:textColor="#00DDFF"
+                    android:textColor="#00E5FF"
                     android:textSize="14sp" />
 
                 <Button
                     android:id="@+id/btnOutro"
-                    style="@style/Widget.AppCompat.Button.Borderless"
                     android:layout_width="wrap_content"
                     android:layout_height="40dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
                     android:focusable="true"
                     android:text="@string/btn_skip_outro"
-                    android:textColor="#00DDFF"
+                    android:textColor="#00E5FF"
                     android:textSize="14sp" />
 
                 <Button
                     android:id="@+id/speedBtn"
-                    style="@style/Widget.AppCompat.Button.Borderless"
                     android:layout_width="wrap_content"
                     android:layout_height="40dp"
+                    android:background="@drawable/tv_btn_focus"
                     android:focusable="true"
                     android:text="1.0x"
                     android:textColor="#FFFFFF"
