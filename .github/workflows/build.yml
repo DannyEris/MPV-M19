@@ -30,19 +30,33 @@ jobs:
         run: |
           ./download.sh
 
-      - name: Build Native Libraries (arm64-v8a for S912)
+      - name: Build Native Libraries (arm64 and armv7l)
         working-directory: buildscripts
         run: |
           ./buildall.sh --arch arm64 mpv
           ./buildall.sh --arch armv7l mpv
+          # 核心修复：编译 JNI 胶水层库，将 libmpvandroid 注入工程
+          ./buildall.sh -n
 
       - name: Build Android APK via Gradle
         run: |
           chmod +x ./gradlew
           ./gradlew assembleDefaultRelease --stacktrace
 
+      - name: Sign Release APKs
+        run: |
+          # 为 TVBox 盒子端免授权安装进行自签名
+          sudo apt-get install -y apksigner
+          keytool -genkey -v -keystore release.jks -alias tvbox -keyalg RSA -keysize 2048 -validity 10000 -storepass 123456 -keypass 123456 -dname "CN=mpv, OU=tv, O=tv, L=SH, S=SH, C=CN"
+          for apk in app/build/outputs/apk/default/release/*-unsigned.apk; do
+            if [ -f "$apk" ]; then
+              out_apk="${apk/-unsigned.apk/-signed.apk}"
+              apksigner sign --ks release.jks --ks-pass pass:123456 --ks-key-alias tvbox --key-pass pass:123456 --out "$out_apk" "$apk"
+            fi
+          done
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: mpv-tvbox-release
-          path: app/build/outputs/apk/default/release/*.apk
+          path: app/build/outputs/apk/default/release/*-signed.apk
