@@ -47,13 +47,13 @@ jobs:
           chmod -R +x buildscripts
           chmod +x gradlew
 
-      # 自动自愈与智能补全 strings.xml
-      - name: Auto Heal & Merge String Resources
+      # 智能合并字符串：确保原版词条完整的同时，保留 TVBox 所有定制词条
+      - name: Merge Custom Strings into Strings XML
         run: |
           STRINGS_FILE="app/src/main/res/values/strings.xml"
           if ! grep -q 'name="mpv_activity"' "$STRINGS_FILE"; then
-            echo ">> 检测到基础词条被覆盖，正在从 Git 历史恢复完整原版 strings.xml..."
-            ORIG_COMMIT=$(git log --reverse --format="%H" -- "$STRINGS_FILE" | head -n 1)
+            echo ">> 正在从初始提交提取基础词条..."
+            ORIG_COMMIT=$(git rev-list --max-parents=0 HEAD | head -n 1)
             git show "$ORIG_COMMIT:$STRINGS_FILE" > "$STRINGS_FILE"
           fi
 
@@ -114,16 +114,16 @@ jobs:
           mkdir -p buildscripts/sdk
           ln -sf "$ANDROID_HOME" buildscripts/sdk/android-sdk-linux
 
-      # 关键修复：强制 IPv4 (-4)、无冗余日志 (-nv)、带超时与自动重试机制
+      # 下载依赖，限制刷屏输出、强制 IPv4 并重试
       - name: Download SDK, NDK and Native Dependencies
         working-directory: buildscripts
         env:
           IN_CI: 1
           WGET: wget -4 -nv --tries=10 --timeout=30 --retry-connrefused --waitretry=3
         run: |
-          ./download.sh || (echo ">> 检测到网络抖动，5秒后自动重试下载..." && sleep 5 && ./download.sh)
+          ./download.sh || (echo ">> 检测到网络抖动，5秒后重试..." && sleep 5 && ./download.sh)
 
-      # 按需编译底层 C/C++ 库
+      # 编译底层 C/C++ 库 (针对 M19 默认仅编译 armv7l)
       - name: Build Native Libraries
         working-directory: buildscripts
         run: |
@@ -142,10 +142,7 @@ jobs:
             ./buildall.sh --arch arm64 mpv
           fi
           
-          # 清理软链接避免 Gradle 搜集冲突
           rm -rf ../app/src/main/jniLibs
-          
-          # 仅编译 JNI 胶水库
           NO_GRADLE=1 ./buildall.sh -n
 
       # 构建 Android Release APK
