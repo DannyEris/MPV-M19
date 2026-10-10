@@ -7,17 +7,13 @@ ext.universalBase = 8000
 android {
     namespace 'is.xyz.mpv'
     compileSdk 35
-
     defaultConfig {
         minSdkVersion 21
         targetSdk 35
-
         versionCode 44
         versionName "2025-12-27-release"
-
         vectorDrawables.useSupportLibrary = true
     }
-
     flavorDimensions "default"
     productFlavors {
         "default" {
@@ -28,26 +24,29 @@ android {
             versionNameSuffix "-oldapi"
         }
     }
-
     buildFeatures {
         viewBinding = true
         buildConfig = true
     }
-
+    // 关键修复：直接将 jniLibs 指向 ndk-build 输出的真实物理目录，规避软链接引发的 NPE
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/libs']
+        }
+    }
     splits {
         abi {
             enable true
             reset()
-            // include only the ABIs that were actually built
+            // 包含实际已编译出的 ABI
             project.ext.abiCodes.each { abi, _ ->
-                if (new File(project.projectDir, "src/main/jniLibs/${abi}").exists())
+                if (new File(project.projectDir, "src/main/libs/${abi}").exists() ||
+                    new File(project.projectDir, "src/main/jniLibs/${abi}").exists())
                     include(abi)
             }
-            universalApk true // build an APK with all ABIs too
+            universalApk true // 生成全架构包含的通用 APK
         }
     }
-
-    // https://youtrack.jetbrains.com/issue/KT-55947
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
@@ -57,13 +56,11 @@ android {
     }
 }
 
-// Map versionCode so each ABI gets a different one
-// e.g. x86 with version 21 gets a versionCode of 3021
+// 映射版本号
 import com.android.build.VariantOutput
 android.applicationVariants.all { variant ->
     variant.outputs.each { output ->
         def base = project.ext.abiCodes.get(output.getFilter(VariantOutput.ABI))
-        // universal APK just gets a constant added to it
         if (base != null)
             output.versionCodeOverride = base * 1000 + variant.versionCode
         else
