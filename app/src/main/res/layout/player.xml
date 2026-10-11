@@ -9,7 +9,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 顶部状态栏：仅保留 解码模式 与 HDR转SDR 两个按钮 -->
+    <!-- 顶部状态栏：解码模式、HDR转SDR、统计信息 OSD 按钮 -->
     <LinearLayout
         android:id="@+id/top_controls"
         android:layout_width="match_parent"
@@ -53,6 +53,7 @@
                 android:id="@+id/btn_hdr_mode"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
+                android:layout_marginEnd="8dp"
                 android:background="@drawable/tv_btn_focus"
                 android:focusable="true"
                 android:minWidth="0dp"
@@ -60,10 +61,22 @@
                 android:text="@string/hdr_to_sdr"
                 android:textColor="@android:color/white"
                 android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btn_stats"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:background="@drawable/tv_btn_focus"
+                android:focusable="true"
+                android:minWidth="0dp"
+                android:paddingHorizontal="12dp"
+                android:text="@string/toggle_stats"
+                android:textColor="@android:color/white"
+                android:textSize="12sp" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 底部控制栏：包含进度条与整排横向功能按钮 -->
+    <!-- 底部控制栏 -->
     <LinearLayout
         android:id="@+id/controls"
         android:layout_width="match_parent"
