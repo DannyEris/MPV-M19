@@ -42,17 +42,17 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
     private var containerVideoHeight = 0
 
     // 屏幕比例模式:
-    // 0: 默认原始 (保持原片宽高比适应屏幕，带黑边不拉伸)
+    // 0: 默认原始 (保持原片固有宽高比适应屏幕，带黑边不拉伸)
     // 1: 裁切填充 (保持原片宽高比放大直至满屏，切除黑边不拉伸)
     // 2: 16:9 比例
     // 3: 4:3 比例
-    // 4: 拉伸全屏 (忽略比例强行铺满视口)
+    // 4: 拉伸全屏 (忽略比例铺满视口)
     private var aspectIndex = 0
 
     // 解码模式: 0: HW (mediacodec-copy，S912专属), 1: HW+ (mediacodec), 2: SW (no)
     private var decoderIndex = 0
 
-    // HDR 模式: 0: 自动, 1: 开启(SDR映射), 2: 关闭
+    // HDR 模式: 0: 自动(Mobius算法，通透不灰白), 1: 鲜艳(Hable胶片算法), 2: 关闭(Clip截断)
     private var hdrMode = 0
 
     // 片头片尾 (秒)
@@ -129,7 +129,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         binding.player.initialize(configDir, cacheDir)
         MPVLib.addObserver(this)
 
-        // 1. 正确生效 profile=fast (通过指令接口确保执行)
+        // 1. 正确生效 profile=fast (通过底层指令接口调用，属性设置会被忽略)
         MPVLib.command(arrayOf("apply-profile", "fast"))
 
         // 2. 硬件解码配置：天猫魔盒 M19 (S912/Android 5.1) 核心使用 mediacodec-copy
@@ -143,7 +143,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("keepaspect", "yes")
         MPVLib.setPropertyDouble("panscan", 0.0)
 
-        // 4. 4K 60fps 极速渲染流：释放 Mali-T820 GPU 计算与显存带宽压力
+        // 4. 4K 60fps 基础极速渲染管线（兼顾 Mali-T820 低带宽与平滑丢帧保护）
         MPVLib.setPropertyString("scale", "bilinear")
         MPVLib.setPropertyString("cscale", "bilinear")
         MPVLib.setPropertyString("dscale", "bilinear")
@@ -151,15 +151,18 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("dither-depth", "no")
         MPVLib.setPropertyString("correct-downscaling", "no")
         MPVLib.setPropertyString("sigmoid-upscaling", "no")
-        MPVLib.setPropertyString("hdr-compute-peak", "no")
-        MPVLib.setPropertyString("tone-mapping", "clip") // 零计算着色器映射，解决 4K HDR 运算掉帧
         MPVLib.setPropertyString("video-sync", "audio")
         MPVLib.setPropertyString("framedrop", "vo")      // 允许渲染层平滑丢弃过期帧，保持 60fps 稳定
         MPVLib.setPropertyString("vd-lavc-threads", "8")
         MPVLib.setPropertyString("vd-lavc-fast", "yes")
         MPVLib.setPropertyString("vd-lavc-skiploopfilter", "nonref") // 跳过非参考帧滤波，解码效率成倍提升
 
-        // 5. 深度内存缓存机制 (RAM Cache)：彻底解决网盘 4K 60fps 码率波动卡顿
+        // 5. 核心修复：锁定电视标准色域 (BT.709) 与电视标准伽马 (Gamma 2.2)，彻底消除白雾发灰
+        MPVLib.setPropertyString("target-prim", "bt.709")
+        MPVLib.setPropertyString("target-trc", "gamma2.2")
+        MPVLib.setPropertyString("hdr-compute-peak", "no")
+
+        // 6. 深度内存缓存机制 (RAM Cache)：彻底解决网盘 4K 60fps 码率波动卡顿
         MPVLib.setPropertyString("cache", "yes")
         MPVLib.setPropertyString("cache-secs", "60")
         MPVLib.setPropertyString("demuxer-max-bytes", "${128 * 1024 * 1024}") // 128MB 快速内存缓冲区
@@ -170,7 +173,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("stream-buffer-size", "2097152")
         MPVLib.setPropertyString("network-timeout", "20")
 
-        // 6. 协议层自动重连与证书校验忽略
+        // 7. 协议层自动重连与证书校验忽略
         val caFile = File(configDir, "cacert.pem")
         if (caFile.exists()) {
             MPVLib.setPropertyString("tls-ca-file", caFile.absolutePath)
@@ -285,6 +288,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             ?: intent.getStringExtra("cookie")
         if (!explicitCookie.isNullOrEmpty()) headersMap["Cookie"] = explicitCookie
 
+        // 伪装浏览器标识与百度直链防护
         val isBaidu = path.contains("baidupcs.com", ignoreCase = true) || path.contains("pcs.baidu.com", ignoreCase = true)
         val defaultBrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
@@ -490,22 +494,29 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         }
     }
 
+    // 精准 HDR -> SDR 色彩空间重映射函数
     private fun applyHdrMode(mode: Int, updateText: Boolean) {
         when (mode) {
             0 -> {
-                MPVLib.setPropertyString("tone-mapping", "reinhard")
-                MPVLib.setPropertyString("target-trc", "auto")
+                // 推荐模式：莫比乌斯算法 (运算开销极低，色彩通透不发白，对比度扎实)
+                MPVLib.setPropertyString("tone-mapping", "mobius")
+                MPVLib.setPropertyString("target-prim", "bt.709")
+                MPVLib.setPropertyString("target-trc", "gamma2.2")
                 MPVLib.setPropertyString("hdr-compute-peak", "no")
                 if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}:${getString(R.string.hdr_auto)}"
             }
             1 -> {
-                MPVLib.setPropertyString("tone-mapping", "clip") // 极致性能，零 GPU 着色开销
-                MPVLib.setPropertyString("target-trc", "srgb")
+                // 鲜艳/胶片模式：Hable 算法 (好莱坞胶片级对比曲线，暗部更深沉，色彩浓郁)
+                MPVLib.setPropertyString("tone-mapping", "hable")
+                MPVLib.setPropertyString("target-prim", "bt.709")
+                MPVLib.setPropertyString("target-trc", "gamma2.2")
                 MPVLib.setPropertyString("hdr-compute-peak", "no")
-                if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}:${getString(R.string.hdr_on)}"
+                if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}: 鲜艳"
             }
             2 -> {
+                // 关闭模式：纯截断 (原样输出)
                 MPVLib.setPropertyString("tone-mapping", "clip")
+                MPVLib.setPropertyString("target-prim", "auto")
                 MPVLib.setPropertyString("target-trc", "auto")
                 MPVLib.setPropertyString("hdr-compute-peak", "no")
                 if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}:${getString(R.string.hdr_off)}"
@@ -513,7 +524,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         }
     }
 
-    // 核心比例计算引擎：彻底解决拉伸变形
+    // 核心比例计算引擎：从封装容器层直接锁定真实物理比例
     private fun applyCurrentAspectRatio() {
         when (aspectIndex) {
             0 -> {
@@ -742,7 +753,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             MPVLib.observeProperty("duration", MpvFormat.MPV_FORMAT_INT64)
             MPVLib.observeProperty("pause", MpvFormat.MPV_FORMAT_FLAG)
 
-            // 从解复用器直接抓取视频封装层的真实宽高
+            // 从解复用器直接抓取视频封装层的真实物理像素宽高
             val count = MPVLib.getPropertyInt("track-list/count") ?: 0
             for (i in 0 until count) {
                 if (MPVLib.getPropertyString("track-list/$i/type") == "video") {
