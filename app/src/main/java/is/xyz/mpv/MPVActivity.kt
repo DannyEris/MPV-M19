@@ -46,7 +46,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
     // 1: 裁切填充 (保持原片宽高比放大直至满屏，切除黑边不拉伸)
     // 2: 16:9 比例
     // 3: 4:3 比例
-    // 4: 拉伸全屏 (忽略比例铺满视口)
+    // 4: 拉伸全屏 (忽略比例强行铺满视口)
     private var aspectIndex = 0
 
     // 解码模式: 0: HW (mediacodec-copy，S912专属), 1: HW+ (mediacodec), 2: SW (no)
@@ -80,7 +80,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         try {
             Utils.copyAssets(this)
         } catch (e: Exception) {
-            // Ignore asset copy exception
+            // Ignore asset copy errors
         }
 
         binding = PlayerBinding.inflate(layoutInflater)
@@ -129,23 +129,25 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         binding.player.initialize(configDir, cacheDir)
         MPVLib.addObserver(this)
 
-        // 1. 硬件解码配置：天猫魔盒 M19 (S912/Android 5.1) 核心使用 mediacodec-copy
+        // 1. 正确生效 profile=fast (通过指令接口确保执行)
+        MPVLib.command(arrayOf("apply-profile", "fast"))
+
+        // 2. 硬件解码配置：天猫魔盒 M19 (S912/Android 5.1) 核心使用 mediacodec-copy
         MPVLib.setPropertyString("hwdec", "mediacodec-copy")
         MPVLib.setPropertyString("hwdec-codecs", "all")
         MPVLib.setPropertyInt("hwdec-extra-frames", 16) // 扩大帧缓冲池至 16 帧，杜绝 60fps 帧饥饿
         MPVLib.setPropertyString("ao", "audiotrack")
         MPVLib.setPropertyDouble("audio-buffer", 0.2)   // 200ms 音频缓冲，防止欠载音画不同步
 
-        // 2. 比例保持机制：严格禁止 gpu-dumb-mode，初始化锁定原片比例
+        // 3. 比例保持机制：严格禁止 gpu-dumb-mode，初始化锁定原片比例
         MPVLib.setPropertyString("keepaspect", "yes")
         MPVLib.setPropertyDouble("panscan", 0.0)
 
-        // 3. 4K 60fps 极速渲染流：释放 Mali-T820 GPU 计算与显存带宽压力
-        MPVLib.setPropertyString("profile", "fast")
+        // 4. 4K 60fps 极速渲染流：释放 Mali-T820 GPU 计算与显存带宽压力
         MPVLib.setPropertyString("scale", "bilinear")
         MPVLib.setPropertyString("cscale", "bilinear")
         MPVLib.setPropertyString("dscale", "bilinear")
-        MPVLib.setPropertyString("fbo-format", "rgba8") // 限制 FBO 为 8 位带宽，节省 50% 显存总线
+        MPVLib.setPropertyString("fbo-format", "rgba8") // 限制 FBO 为 8 位带宽，节省显存带宽
         MPVLib.setPropertyString("dither-depth", "no")
         MPVLib.setPropertyString("correct-downscaling", "no")
         MPVLib.setPropertyString("sigmoid-upscaling", "no")
@@ -157,7 +159,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("vd-lavc-fast", "yes")
         MPVLib.setPropertyString("vd-lavc-skiploopfilter", "nonref") // 跳过非参考帧滤波，解码效率成倍提升
 
-        // 4. 深度内存缓存机制 (RAM Cache)：彻底解决网盘 4K 60fps 码率波动卡顿
+        // 5. 深度内存缓存机制 (RAM Cache)：彻底解决网盘 4K 60fps 码率波动卡顿
         MPVLib.setPropertyString("cache", "yes")
         MPVLib.setPropertyString("cache-secs", "60")
         MPVLib.setPropertyString("demuxer-max-bytes", "${128 * 1024 * 1024}") // 128MB 快速内存缓冲区
@@ -168,7 +170,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("stream-buffer-size", "2097152")
         MPVLib.setPropertyString("network-timeout", "20")
 
-        // 5. 协议层自动重连与证书校验忽略
+        // 6. 协议层自动重连与证书校验忽略
         val caFile = File(configDir, "cacert.pem")
         if (caFile.exists()) {
             MPVLib.setPropertyString("tls-ca-file", caFile.absolutePath)
@@ -283,7 +285,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             ?: intent.getStringExtra("cookie")
         if (!explicitCookie.isNullOrEmpty()) headersMap["Cookie"] = explicitCookie
 
-        // 伪装浏览器标识与百度直链防护
         val isBaidu = path.contains("baidupcs.com", ignoreCase = true) || path.contains("pcs.baidu.com", ignoreCase = true)
         val defaultBrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
@@ -466,7 +467,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 Toast.makeText(this, "已切换为: CPU软解 (SW)", Toast.LENGTH_SHORT).show()
             }
         }
-        // 解码器切换后重新应用宽高比，防止元数据变化造成显示异常
         applyCurrentAspectRatio()
     }
 
@@ -521,10 +521,9 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 MPVLib.setPropertyString("keepaspect", "yes")
                 MPVLib.setPropertyDouble("panscan", 0.0)
                 if (containerVideoWidth > 0 && containerVideoHeight > 0) {
-                    // 强制锁定容器解出的物理真实比例，彻底覆盖 MediaCodec 的拉伸误报
                     MPVLib.setPropertyString("video-aspect-override", "$containerVideoWidth:$containerVideoHeight")
                 } else {
-                    MPVLib.setPropertyString("video-aspect-override", "no")
+                    MPVLib.setPropertyString("video-aspect-override", "-1")
                 }
                 binding.btnAspectRatio.text = getString(R.string.aspect_default)
             }
@@ -534,7 +533,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 if (containerVideoWidth > 0 && containerVideoHeight > 0) {
                     MPVLib.setPropertyString("video-aspect-override", "$containerVideoWidth:$containerVideoHeight")
                 } else {
-                    MPVLib.setPropertyString("video-aspect-override", "no")
+                    MPVLib.setPropertyString("video-aspect-override", "-1")
                 }
                 MPVLib.setPropertyDouble("panscan", 1.0)
                 binding.btnAspectRatio.text = getString(R.string.aspect_crop)
@@ -743,7 +742,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             MPVLib.observeProperty("duration", MpvFormat.MPV_FORMAT_INT64)
             MPVLib.observeProperty("pause", MpvFormat.MPV_FORMAT_FLAG)
 
-            // 文件成功加载后，读取封装容器层的真实宽高，并应用画面比例
+            // 从解复用器直接抓取视频封装层的真实宽高
             val count = MPVLib.getPropertyInt("track-list/count") ?: 0
             for (i in 0 until count) {
                 if (MPVLib.getPropertyString("track-list/$i/type") == "video") {
@@ -785,7 +784,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         handler.postDelayed(hideControlsRunnable, 6000)
     }
 
-    // 左右键独立轻量 Toast 提示
+    // 左右方向键轻量无打扰 Toast 提示
     private var seekToast: Toast? = null
     private fun showSeekToast(msg: String) {
         seekToast?.cancel()
@@ -806,7 +805,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         if (event.repeatCount == 0) {
             // 单击点按：快进/快退 10 秒
             totalSeekDelta = dir * 10
-            MPVLib.command(arrayOf("seek", (dir * 10).toString(), "relative"))
+            MPVLib.command(arrayOf("seek", totalSeekDelta.toString(), "relative"))
             val targetPos = (currentPos + totalSeekDelta).coerceIn(0, duration)
             val sign = if (totalSeekDelta > 0) "+" else ""
             showSeekToast("${sign}${totalSeekDelta}秒 (${formatTime(targetPos)})")
