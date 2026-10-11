@@ -21,6 +21,8 @@ import `is`.xyz.mpv.MPVLib.MpvEvent
 import `is`.xyz.mpv.MPVLib.MpvFormat
 import org.json.JSONObject
 import java.io.File
+import java.lang.StringBuilder
+import java.util.TreeMap
 import kotlin.math.roundToInt
 
 class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
@@ -154,7 +156,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         updateIntroOutroButtonsText()
 
         // 全面提取 TVBox / OK影视 传递的请求头（大小写不敏感存储）
-        val headersMap = LinkedHashMap<String, String>(String.CASE_INSENSITIVE_ORDER)
+        val headersMap = TreeMap<String, String>(java.lang.String.CASE_INSENSITIVE_ORDER)
 
         // 1. Bundle 格式 (TVBox 最常见形式)
         val httpHeadersBundle = intent.getBundleExtra("headers")
@@ -219,8 +221,8 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         if (!explicitCookie.isNullOrEmpty()) headersMap["Cookie"] = explicitCookie
 
         // 分流并配置请求头到 mpv 与 FFmpeg
-        val customUa = headersMap["User-Agent"]
-        val customRef = headersMap["Referer"]
+        val customUa: String? = headersMap["User-Agent"]
+        val customRef: String? = headersMap["Referer"]
 
         if (!customUa.isNullOrEmpty()) {
             MPVLib.setPropertyString("user-agent", customUa)
@@ -231,7 +233,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
 
         // A. 给 mpv 原生 HTTP 协议传递格式化标头列表
         val mpvHeaderList = mutableListOf<String>()
-        headersMap.forEach { (k, v) ->
+        for ((k, v) in headersMap) {
             if (!k.equals("User-Agent", ignoreCase = true) && !k.equals("Referer", ignoreCase = true)) {
                 mpvHeaderList.add("$k:$v")
             }
@@ -243,14 +245,14 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         // B. 针对 HLS (m3u8) 与网盘流：注入到 FFmpeg libavformat (demuxer-lavf-o)
         // FFmpeg 协议格式要求以 \r\n 分隔所有行
         val crlfHeadersBuilder = StringBuilder()
-        headersMap.forEach { (k, v) ->
+        for ((k, v) in headersMap) {
             crlfHeadersBuilder.append("$k:$v\r\n")
         }
 
         val lavfOpts = mutableListOf<String>()
         lavfOpts.add("tls_verify=0")
         if (crlfHeadersBuilder.isNotEmpty()) {
-            lavfOpts.add("headers=${crlfHeadersBuilder}")
+            lavfOpts.add("headers=${crlfHeadersBuilder.toString()}")
         }
         if (!customUa.isNullOrEmpty()) {
             lavfOpts.add("user_agent=${customUa}")
@@ -404,21 +406,18 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
     private fun applyHdrMode(mode: Int, updateText: Boolean) {
         when (mode) {
             0 -> {
-                // 自动模式：针对 S912 采用开销最小的动态重映射，不计算动态峰值
                 MPVLib.setPropertyString("tone-mapping", "reinhard")
                 MPVLib.setPropertyString("target-trc", "auto")
                 MPVLib.setPropertyString("hdr-compute-peak", "no")
                 if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}:${getString(R.string.hdr_auto)}"
             }
             1 -> {
-                // 开启模式：映射到 srgb 色域
                 MPVLib.setPropertyString("tone-mapping", "mobius")
                 MPVLib.setPropertyString("target-trc", "srgb")
                 MPVLib.setPropertyString("hdr-compute-peak", "no")
                 if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}:${getString(R.string.hdr_on)}"
             }
             2 -> {
-                // 关闭模式：纯截断方式，完全不占 GPU
                 MPVLib.setPropertyString("tone-mapping", "clip")
                 MPVLib.setPropertyString("target-trc", "auto")
                 MPVLib.setPropertyString("hdr-compute-peak", "no")
