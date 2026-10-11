@@ -1,9 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 原版系统与设置必备基础词条 (不可缺少，缺少会导致 AAPT 报错) -->
     <string name="app_name">mpv</string>
-    <string name="error_no_file">未获取到有效的播放地址</string>
+    <string name="mpv_activity">mpv</string>
+    <string name="label_share_intent">Play with mpv</string>
+    <string name="title_activity_settings">Settings</string>
+    <string name="pref_header_about_mpv">About mpv</string>
+    <string name="pref_category_general">General</string>
+    <string name="pref_category_video">Video</string>
+    <string name="pref_category_audio">Audio</string>
+    <string name="pref_category_subtitles">Subtitles</string>
+    <string name="pref_category_advanced">Advanced</string>
+    <string name="pref_category_developer">Developer</string>
+    <string name="pref_hardware_decoding">Hardware decoding</string>
+    <string name="pref_hardware_decoding_summary">Use hardware acceleration for video decoding</string>
+    <string name="pref_video_fast_decode">Fast decoding</string>
+    <string name="pref_video_fast_decode_summary">May cause artifacts on some videos</string>
+    <string name="pref_video_speed">Playback speed</string>
+    <string name="pref_audio_delay">Audio delay</string>
+    <string name="pref_sub_delay">Subtitle delay</string>
+    <string name="pref_audio_output">Audio output</string>
+    <string name="pref_audio_output_summary">Choose audio driver</string>
+    <string name="action_open_file">Open file</string>
+    <string name="action_open_url">Open URL</string>
+    <string name="dialog_open_url_title">Open URL</string>
+    <string name="dialog_open_url_hint">Enter stream URL</string>
 
-    <!-- 播放器按钮 -->
+    <!-- TVBox 电视定制专用词条 (保留全部定制功能) -->
+    <string name="error_no_file">未获取到有效的播放地址</string>
     <string name="btn_play">播放</string>
     <string name="btn_pause">暂停</string>
     <string name="btn_skip_intro">设片头</string>
@@ -13,25 +37,21 @@
     <string name="toast_outro_set">已记录片尾跳过点：%s (长按清除)</string>
     <string name="toast_outro_reset">已清除片尾跳过设置</string>
     <string name="toast_intro_skipped">已自动跳过片头</string>
-
-    <!-- HDR 选项 -->
     <string name="hdr_to_sdr">HDR映射</string>
     <string name="hdr_auto">自动</string>
     <string name="hdr_on">开启(SDR)</string>
     <string name="hdr_off">关闭</string>
-
-    <!-- 屏幕比例 -->
     <string name="aspect_default">默认比例</string>
     <string name="aspect_16_9">16:9</string>
     <string name="aspect_4_3">4:3</string>
     <string name="aspect_fill">拉伸全屏</string>
     <string name="aspect_original">原始画面</string>
     <string name="aspect_crop">裁剪填充</string>
-
-    <!-- 轨道与菜单 -->
+    <string name="btn_aspect_ratio">画面比例</string>
     <string name="btn_subtitle_settings">字幕</string>
     <string name="btn_audio_track">音轨</string>
     <string name="btn_video_track">视轨</string>
+    <string name="track_video">视频轨</string>
     <string name="track_off">关闭</string>
     <string name="track_subs">选择字幕轨道</string>
     <string name="sub_font_size">字幕字体缩放</string>
