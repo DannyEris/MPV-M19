@@ -22,6 +22,7 @@ import `is`.xyz.mpv.MPVLib.MpvFormat
 import org.json.JSONObject
 import java.io.File
 import java.util.TreeMap
+import kotlin.math.pow
 import kotlin.math.roundToInt
 
 class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
@@ -48,6 +49,14 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
     // 3: 4:3 比例
     // 4: 拉伸全屏 (忽略比例铺满视口)
     private var aspectIndex = 0
+
+    // 画面自由等比缩放倍率 (基数 0.0 代表 100%)
+    private var currentVideoZoom = 0.0
+
+    // 字幕微调参数
+    private var currentSubScale = 1.0
+    private var currentSubPos = 100
+    private var currentSubDelay = 0.0
 
     // 解码模式: 0: HW (mediacodec-copy，S912专属), 1: HW+ (mediacodec), 2: SW (no)
     private var decoderIndex = 0
@@ -129,7 +138,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         binding.player.initialize(configDir, cacheDir)
         MPVLib.addObserver(this)
 
-        // 1. 正确生效 profile=fast (通过底层指令接口调用，属性设置会被忽略)
+        // 1. 正确生效 profile=fast (通过底层指令接口调用)
         MPVLib.command(arrayOf("apply-profile", "fast"))
 
         // 2. 硬件解码配置：天猫魔盒 M19 (S912/Android 5.1) 核心使用 mediacodec-copy
@@ -157,12 +166,12 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("vd-lavc-fast", "yes")
         MPVLib.setPropertyString("vd-lavc-skiploopfilter", "nonref") // 跳过非参考帧滤波，解码效率成倍提升
 
-        // 5. 核心修复：锁定电视标准色域 (BT.709) 与电视标准伽马 (Gamma 2.2)，彻底消除白雾发灰
+        // 5. 核心色彩：强制锁定电视标准色域 (BT.709) 与电视标准伽马 (Gamma 2.2)，彻底消除白雾发灰
         MPVLib.setPropertyString("target-prim", "bt.709")
         MPVLib.setPropertyString("target-trc", "gamma2.2")
         MPVLib.setPropertyString("hdr-compute-peak", "no")
 
-        // 6. 深度内存缓存机制 (RAM Cache)：彻底解决网盘 4K 60fps 码率波动卡顿
+        // 6. 深度内存缓存机制 (RAM Cache)：256MB 物理内存池
         MPVLib.setPropertyString("cache", "yes")
         MPVLib.setPropertyString("cache-secs", "120")
         MPVLib.setPropertyString("demuxer-max-bytes", "${256 * 1024 * 1024}") // 256MB 快速内存缓冲区
@@ -176,13 +185,17 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         // 启用 OpenGL 异步像素缓冲对象 (PBO)，减轻 CPU 搬运数据时的内存等待
         MPVLib.setPropertyString("opengl-pbo", "yes")
 
-        // 7. 协议层自动重连与证书校验忽略
+        // 7. 协议层自动重连与证书校验忽略（兼顾解复用与流层，解决 Android 5.1 证书过期）
         val caFile = File(configDir, "cacert.pem")
         if (caFile.exists()) {
             MPVLib.setPropertyString("tls-ca-file", caFile.absolutePath)
         }
         MPVLib.setPropertyString("tls-verify", "no")
-        MPVLib.setPropertyString("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,tls_verify=0")
+
+        // 核心：开放 HLS / M3U8 加密协议与全线重连，并禁止 FFmpeg 校验失效根证书
+        val lavfOpts = "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,tls_verify=0,protocol_whitelist=file\\,http\\,https\\,tcp\\,tls\\,crypto\\,data"
+        MPVLib.setPropertyString("stream-lavf-o", lavfOpts)
+        MPVLib.setPropertyString("demuxer-lavf-o", "tls_verify=0,protocol_whitelist=file\\,http\\,https\\,tcp\\,tls\\,crypto\\,data")
 
         // 初始化 HDR 状态
         hdrMode = sharedPrefs.getInt("hdr_to_sdr_mode", 0)
@@ -213,6 +226,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         hasPlayedBeforeOutro = false
         containerVideoWidth = 0
         containerVideoHeight = 0
+        currentVideoZoom = 0.0
 
         var title = intent.getStringExtra("title")
         if (title.isNullOrEmpty()) {
@@ -291,30 +305,42 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             ?: intent.getStringExtra("cookie")
         if (!explicitCookie.isNullOrEmpty()) headersMap["Cookie"] = explicitCookie
 
-        // 伪装浏览器标识与百度直链防护
-        val isBaidu = path.contains("baidupcs.com", ignoreCase = true) || path.contains("pcs.baidu.com", ignoreCase = true)
+        // 检测链接类型 (百度 / M3U8秒播)
+        val isBaidu = path.contains("baidupcs.com", ignoreCase = true) ||
+                path.contains("pcs.baidu.com", ignoreCase = true) ||
+                path.contains("baidu.com", ignoreCase = true)
+        val isM3u8 = path.contains(".m3u8", ignoreCase = true) ||
+                path.contains("m3u8", ignoreCase = true) ||
+                path.contains("hls", ignoreCase = true)
+
         val defaultBrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
+        // 1. User-Agent：严格优先使用 TVBox 传入的专属 UA（特别是百度 PCS）；仅在未传入时才做智能保底
         var finalUa = headersMap["User-Agent"]
-        if (isBaidu) {
-            finalUa = "pan.baidu.com"
-        } else if (finalUa.isNullOrEmpty()) {
-            finalUa = defaultBrowserUa
+        if (finalUa.isNullOrEmpty()) {
+            finalUa = if (isBaidu) {
+                "netdisk;11.12.3;PC;PC-Windows;10.0.19042;WindowsBaiduYunGuanJia"
+            } else {
+                defaultBrowserUa
+            }
         }
         MPVLib.setPropertyString("user-agent", finalUa)
 
-        val customRef = headersMap["Referer"]
+        // 2. Referer：百度绝不发送伪造 Referer；秒播 M3U8 在缺失时自动补全站点域名以通过防盗链
+        var customRef = headersMap["Referer"]
+        if (customRef.isNullOrEmpty() && isM3u8 && uri != null && !uri.host.isNullOrEmpty()) {
+            customRef = "${uri.scheme ?: "https"}://${uri.host}/"
+        }
         if (!customRef.isNullOrEmpty()) {
             MPVLib.setPropertyString("referrer", customRef)
-        } else if (isBaidu) {
-            MPVLib.setPropertyString("referrer", "https://pan.baidu.com/")
         }
 
+        // 3. 构建全套请求标头 (规范添加空格，转义逗号)
         val mpvHeaderList = mutableListOf<String>()
         for ((k, v) in headersMap) {
             if (!k.equals("User-Agent", ignoreCase = true) && !k.equals("Referer", ignoreCase = true)) {
                 val safeVal = v.replace(",", "\\,")
-                mpvHeaderList.add("$k:$safeVal")
+                mpvHeaderList.add("$k: $safeVal")
             }
         }
         if (mpvHeaderList.isNotEmpty()) {
@@ -377,15 +403,40 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
         })
 
+        // 画面比例切换按钮 (默认原始/裁切填充/16:9/4:3/拉伸全屏)
+        binding.btnAspectRatio.setOnClickListener {
+            cycleAspectRatio()
+            resetHideControlsTimer()
+        }
+
+        // 画面等比缩放控制 (放大 / 重置 / 缩小)
+        binding.btnZoomIn.setOnClickListener {
+            currentVideoZoom = (currentVideoZoom + 0.05).coerceAtMost(1.5)
+            MPVLib.setPropertyDouble("video-zoom", currentVideoZoom)
+            val percent = (2.0.pow(currentVideoZoom) * 100).roundToInt()
+            Toast.makeText(this, "画面放大: ${percent}%", Toast.LENGTH_SHORT).show()
+            resetHideControlsTimer()
+        }
+
+        binding.btnZoomReset.setOnClickListener {
+            currentVideoZoom = 0.0
+            MPVLib.setPropertyDouble("video-zoom", 0.0)
+            Toast.makeText(this, "画面缩放已重置 (100%)", Toast.LENGTH_SHORT).show()
+            resetHideControlsTimer()
+        }
+
+        binding.btnZoomOut.setOnClickListener {
+            currentVideoZoom = (currentVideoZoom - 0.05).coerceAtLeast(-1.0)
+            MPVLib.setPropertyDouble("video-zoom", currentVideoZoom)
+            val percent = (2.0.pow(currentVideoZoom) * 100).roundToInt()
+            Toast.makeText(this, "画面缩小: ${percent}%", Toast.LENGTH_SHORT).show()
+            resetHideControlsTimer()
+        }
+
         binding.btnHdrMode.setOnClickListener {
             hdrMode = (hdrMode + 1) % 3
             sharedPrefs.edit().putInt("hdr_to_sdr_mode", hdrMode).apply()
             applyHdrMode(hdrMode, updateText = true)
-            resetHideControlsTimer()
-        }
-
-        binding.btnAspectRatio.setOnClickListener {
-            cycleAspectRatio()
             resetHideControlsTimer()
         }
 
@@ -427,6 +478,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             updateIntroOutroButtonsText()
             Toast.makeText(this, getString(R.string.toast_outro_set, formatTime(skipOutroSec)), Toast.LENGTH_SHORT).show()
             resetHideControlsTimer()
+            true
         }
         binding.btnOutro.setOnLongClickListener {
             skipOutroSec = 0
@@ -485,13 +537,13 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
 
     private fun updateIntroOutroButtonsText() {
         binding.btnIntro.text = if (skipIntroSec > 0) {
-            "${getString(R.string.btn_skip_intro)}:${formatTime(skipIntroSec)}"
+            "${getString(R.string.btn_skip_intro)}: ${formatTime(skipIntroSec)}"
         } else {
             getString(R.string.btn_skip_intro)
         }
 
         binding.btnOutro.text = if (skipOutroSec > 0) {
-            "${getString(R.string.btn_skip_outro)}:${formatTime(skipOutroSec)}"
+            "${getString(R.string.btn_skip_outro)}: ${formatTime(skipOutroSec)}"
         } else {
             getString(R.string.btn_skip_outro)
         }
@@ -506,7 +558,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 MPVLib.setPropertyString("target-prim", "bt.709")
                 MPVLib.setPropertyString("target-trc", "gamma2.2")
                 MPVLib.setPropertyString("hdr-compute-peak", "no")
-                if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}:${getString(R.string.hdr_auto)}"
+                if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}: ${getString(R.string.hdr_auto)}"
             }
             1 -> {
                 // 鲜艳/胶片模式：Hable 算法 (好莱坞胶片级对比曲线，暗部更深沉，色彩浓郁)
@@ -522,7 +574,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 MPVLib.setPropertyString("target-prim", "auto")
                 MPVLib.setPropertyString("target-trc", "auto")
                 MPVLib.setPropertyString("hdr-compute-peak", "no")
-                if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}:${getString(R.string.hdr_off)}"
+                if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}: ${getString(R.string.hdr_off)}"
             }
         }
     }
@@ -583,6 +635,31 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         applyCurrentAspectRatio()
     }
 
+    // 动态更新视轨与音轨按钮的当前编码及规格信息
+    private fun updateTrackButtonLabels() {
+        // 视轨信息展示
+        val videoCodec = MPVLib.getPropertyString("video-codec")?.uppercase() ?: ""
+        binding.btnVideoTrack.text = if (containerVideoWidth > 0 && containerVideoHeight > 0) {
+            val res = if (containerVideoWidth >= 3800) "4K" else if (containerVideoWidth >= 1900) "1080P" else "${containerVideoHeight}P"
+            if (videoCodec.isNotEmpty()) "视轨: $videoCodec $res" else "视轨: $res"
+        } else if (videoCodec.isNotEmpty()) {
+            "视轨: $videoCodec"
+        } else {
+            getString(R.string.btn_video_track)
+        }
+
+        // 音轨信息展示
+        val audioCodec = MPVLib.getPropertyString("audio-codec")?.uppercase() ?: ""
+        val channels = MPVLib.getPropertyInt("audio-params/channel-count") ?: 0
+        val chStr = if (channels > 2) "${channels}声道" else if (channels == 2) "立体声" else if (channels == 1) "单声道" else ""
+        binding.btnAudioTrack.text = if (audioCodec.isNotEmpty()) {
+            if (chStr.isNotEmpty()) "音轨: $audioCodec $chStr" else "音轨: $audioCodec"
+        } else {
+            getString(R.string.btn_audio_track)
+        }
+    }
+
+    // 人性化快捷字幕调节弹窗 (支持增大/减小/上移/下移及一键重置)
     private fun showSubtitleDialog() {
         val count = MPVLib.getPropertyInt("track-list/count") ?: 0
         val subTracks = mutableListOf<Pair<Int, String>>()
@@ -597,7 +674,19 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
         }
 
-        val options = arrayOf("选择字幕轨道", "字幕大小调节", "字幕垂直位置", "字幕时间轴微调")
+        val options = arrayOf(
+            "选择字幕轨道",
+            "字号增大 (+0.1) [当前: ${String.format("%.1f", currentSubScale)}x]",
+            "字号减小 (-0.1) [当前: ${String.format("%.1f", currentSubScale)}x]",
+            "字号重置 (标准 1.0x)",
+            "字幕上移 (往上) [位置: $currentSubPos]",
+            "字幕下移 (往下) [位置: $currentSubPos]",
+            "字幕位置重置 (底部 100)",
+            "时间轴提前 (-0.5s) [延迟: ${currentSubDelay}s]",
+            "时间轴延后 (+0.5s) [延迟: ${currentSubDelay}s]",
+            "时间轴重置 (0.0s)"
+        )
+
         AlertDialog.Builder(this)
             .setTitle(R.string.btn_subtitle_settings)
             .setItems(options) { _, which ->
@@ -613,36 +702,55 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                             }.show()
                     }
                     1 -> {
-                        val sizes = arrayOf("小 (0.8x)", "标准 (1.0x)", "较大 (1.2x)", "特大 (1.5x)", "超大 (1.8x)")
-                        val scaleVals = arrayOf(0.8, 1.0, 1.2, 1.5, 1.8)
-                        AlertDialog.Builder(this)
-                            .setTitle(R.string.sub_font_size)
-                            .setItems(sizes) { _, sIdx ->
-                                MPVLib.setPropertyDouble("sub-scale", scaleVals[sIdx])
-                            }.show()
+                        currentSubScale = (currentSubScale + 0.1).coerceAtMost(3.0)
+                        MPVLib.setPropertyDouble("sub-scale", currentSubScale)
+                        Toast.makeText(this, "字幕字号: ${String.format("%.1f", currentSubScale)}x", Toast.LENGTH_SHORT).show()
                     }
                     2 -> {
-                        val positions = arrayOf("底部 (100)", "偏底 (90)", "偏中 (80)", "中间 (50)", "顶部 (0)")
-                        val posVals = arrayOf(100, 90, 80, 50, 0)
-                        AlertDialog.Builder(this)
-                            .setTitle(R.string.sub_vertical_position)
-                            .setItems(positions) { _, pIdx ->
-                                MPVLib.setPropertyInt("sub-pos", posVals[pIdx])
-                            }.show()
+                        currentSubScale = (currentSubScale - 0.1).coerceAtLeast(0.5)
+                        MPVLib.setPropertyDouble("sub-scale", currentSubScale)
+                        Toast.makeText(this, "字幕字号: ${String.format("%.1f", currentSubScale)}x", Toast.LENGTH_SHORT).show()
                     }
                     3 -> {
-                        val delays = arrayOf("-2.0s", "-1.0s", "-0.5s", "0s (标准)", "+0.5s", "+1.0s", "+2.0s")
-                        val delayVals = arrayOf(-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0)
-                        AlertDialog.Builder(this)
-                            .setTitle(R.string.sub_delay)
-                            .setItems(delays) { _, dIdx ->
-                                MPVLib.setPropertyDouble("sub-delay", delayVals[dIdx])
-                            }.show()
+                        currentSubScale = 1.0
+                        MPVLib.setPropertyDouble("sub-scale", 1.0)
+                        Toast.makeText(this, "字幕字号已重置为 1.0x", Toast.LENGTH_SHORT).show()
+                    }
+                    4 -> {
+                        currentSubPos = (currentSubPos - 5).coerceAtLeast(0)
+                        MPVLib.setPropertyInt("sub-pos", currentSubPos)
+                        Toast.makeText(this, "字幕位置: $currentSubPos (顶部0~底部100)", Toast.LENGTH_SHORT).show()
+                    }
+                    5 -> {
+                        currentSubPos = (currentSubPos + 5).coerceAtMost(100)
+                        MPVLib.setPropertyInt("sub-pos", currentSubPos)
+                        Toast.makeText(this, "字幕位置: $currentSubPos (顶部0~底部100)", Toast.LENGTH_SHORT).show()
+                    }
+                    6 -> {
+                        currentSubPos = 100
+                        MPVLib.setPropertyInt("sub-pos", 100)
+                        Toast.makeText(this, "字幕位置已重置 (底部100)", Toast.LENGTH_SHORT).show()
+                    }
+                    7 -> {
+                        currentSubDelay -= 0.5
+                        MPVLib.setPropertyDouble("sub-delay", currentSubDelay)
+                        Toast.makeText(this, "字幕时间轴: ${currentSubDelay}s", Toast.LENGTH_SHORT).show()
+                    }
+                    8 -> {
+                        currentSubDelay += 0.5
+                        MPVLib.setPropertyDouble("sub-delay", currentSubDelay)
+                        Toast.makeText(this, "字幕时间轴: ${currentSubDelay}s", Toast.LENGTH_SHORT).show()
+                    }
+                    9 -> {
+                        currentSubDelay = 0.0
+                        MPVLib.setPropertyDouble("sub-delay", 0.0)
+                        Toast.makeText(this, "字幕时间轴已重置", Toast.LENGTH_SHORT).show()
                     }
                 }
             }.show()
     }
 
+    // 音轨选择弹窗 (详细显示各音轨编码、声道数与语言)
     private fun showAudioTrackDialog() {
         val count = MPVLib.getPropertyInt("track-list/count") ?: 0
         val audioTracks = mutableListOf<Pair<Int, String>>()
@@ -653,7 +761,13 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 val id = MPVLib.getPropertyInt("track-list/$i/id") ?: i
                 val title = MPVLib.getPropertyString("track-list/$i/title") ?: "Audio #$id"
                 val lang = MPVLib.getPropertyString("track-list/$i/lang") ?: ""
-                audioTracks.add(Pair(id, if (lang.isNotEmpty()) "$title ($lang)" else title))
+                val codec = MPVLib.getPropertyString("track-list/$i/codec")?.uppercase() ?: ""
+                val channels = MPVLib.getPropertyInt("track-list/$i/demux-channel-count") ?: 0
+                val chStr = if (channels > 2) "${channels}声道" else if (channels == 2) "立体声" else if (channels == 1) "单声道" else ""
+                
+                val spec = listOf(codec, chStr, lang).filter { it.isNotEmpty() }.joinToString(" ")
+                val label = if (spec.isNotEmpty()) "$title [$spec]" else title
+                audioTracks.add(Pair(id, label))
             }
         }
 
@@ -664,9 +778,11 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 val trackId = audioTracks[which].first
                 if (trackId == 0) MPVLib.setPropertyString("aid", "no")
                 else MPVLib.setPropertyInt("aid", trackId)
+                handler.postDelayed({ updateTrackButtonLabels() }, 500)
             }.show()
     }
 
+    // 视轨选择弹窗 (详细显示视频编码、分辨率与帧率)
     private fun showVideoTrackDialog() {
         val count = MPVLib.getPropertyInt("track-list/count") ?: 0
         val videoTracks = mutableListOf<Pair<Int, String>>()
@@ -675,10 +791,16 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             if (MPVLib.getPropertyString("track-list/$i/type") == "video") {
                 val id = MPVLib.getPropertyInt("track-list/$i/id") ?: i
                 val title = MPVLib.getPropertyString("track-list/$i/title") ?: "Video #$id"
+                val codec = MPVLib.getPropertyString("track-list/$i/codec")?.uppercase() ?: ""
                 val w = MPVLib.getPropertyInt("track-list/$i/demux-w") ?: 0
                 val h = MPVLib.getPropertyInt("track-list/$i/demux-h") ?: 0
-                val res = if (w > 0 && h > 0) " (${w}x${h})" else ""
-                videoTracks.add(Pair(id, "$title$res"))
+                val fps = MPVLib.getPropertyDouble("track-list/$i/demux-fps") ?: 0.0
+                val fpsStr = if (fps > 0) "${fps.roundToInt()}fps" else ""
+                val resStr = if (w > 0 && h > 0) "${w}x${h}" else ""
+                
+                val spec = listOf(codec, resStr, fpsStr).filter { it.isNotEmpty() }.joinToString(" ")
+                val label = if (spec.isNotEmpty()) "$title [$spec]" else title
+                videoTracks.add(Pair(id, label))
             }
         }
 
@@ -692,6 +814,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             .setTitle(R.string.btn_video_track)
             .setItems(titles) { _, which ->
                 MPVLib.setPropertyInt("vid", videoTracks[which].first)
+                handler.postDelayed({ updateTrackButtonLabels() }, 500)
             }.show()
     }
 
@@ -769,7 +892,10 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                     }
                 }
             }
-            runOnUiThread { applyCurrentAspectRatio() }
+            runOnUiThread {
+                applyCurrentAspectRatio()
+                updateTrackButtonLabels()
+            }
         } else if (eventId == MpvEvent.MPV_EVENT_END_FILE) {
             runOnUiThread { quitAndReturnResult(isCompleted = true) }
         }
