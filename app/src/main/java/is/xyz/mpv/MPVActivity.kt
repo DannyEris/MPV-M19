@@ -164,14 +164,17 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
 
         // 6. 深度内存缓存机制 (RAM Cache)：彻底解决网盘 4K 60fps 码率波动卡顿
         MPVLib.setPropertyString("cache", "yes")
-        MPVLib.setPropertyString("cache-secs", "60")
-        MPVLib.setPropertyString("demuxer-max-bytes", "${128 * 1024 * 1024}") // 128MB 快速内存缓冲区
-        MPVLib.setPropertyString("demuxer-max-back-bytes", "${32 * 1024 * 1024}")
-        MPVLib.setPropertyString("demuxer-readahead-secs", "60")
-        MPVLib.setPropertyString("demuxer-hysteresis-secs", "5")
+        MPVLib.setPropertyString("cache-secs", "120")
+        MPVLib.setPropertyString("demuxer-max-bytes", "${256 * 1024 * 1024}") // 256MB 快速内存缓冲区
+        MPVLib.setPropertyString("demuxer-max-back-bytes", "${64 * 1024 * 1024}")
+        MPVLib.setPropertyString("demuxer-readahead-secs", "120")
+        MPVLib.setPropertyString("demuxer-hysteresis-secs", "10")
         MPVLib.setPropertyString("demuxer-thread", "yes")          // 独立解复用线程，网络 I/O 绝不卡死渲染
-        MPVLib.setPropertyString("stream-buffer-size", "2097152")
-        MPVLib.setPropertyString("network-timeout", "20")
+        MPVLib.setPropertyString("stream-buffer-size", "4194304")
+        MPVLib.setPropertyString("network-timeout", "30")
+
+        // 启用 OpenGL 异步像素缓冲对象 (PBO)，减轻 CPU 搬运数据时的内存等待
+        MPVLib.setPropertyString("opengl-pbo", "yes")
 
         // 7. 协议层自动重连与证书校验忽略
         val caFile = File(configDir, "cacert.pem")
