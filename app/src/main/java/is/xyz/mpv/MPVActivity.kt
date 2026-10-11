@@ -563,12 +563,18 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
 
     override fun eventProperty(property: String, value: String) {}
 
+    override fun eventProperty(property: String, value: Double) {
+        if (property == "time-pos" || property == "duration") {
+            eventProperty(property, value.toLong())
+        }
+    }
+
     override fun event(eventId: Int) {
-        if (eventId == MPVLib.mpvEventId.MPV_EVENT_FILE_LOADED) {
-            MPVLib.observeProperty("time-pos", MPVLib.mpvFormat.MPV_FORMAT_INT64)
-            MPVLib.observeProperty("duration", MPVLib.mpvFormat.MPV_FORMAT_INT64)
-            MPVLib.observeProperty("pause", MPVLib.mpvFormat.MPV_FORMAT_FLAG)
-        } else if (eventId == MPVLib.mpvEventId.MPV_EVENT_END_FILE) {
+        if (eventId == mpvEventId.MPV_EVENT_FILE_LOADED) {
+            MPVLib.observeProperty("time-pos", mpvFormat.MPV_FORMAT_INT64)
+            MPVLib.observeProperty("duration", mpvFormat.MPV_FORMAT_INT64)
+            MPVLib.observeProperty("pause", mpvFormat.MPV_FORMAT_FLAG)
+        } else if (eventId == mpvEventId.MPV_EVENT_END_FILE) {
             runOnUiThread { quitAndReturnResult(isCompleted = true) }
         }
     }
