@@ -144,15 +144,23 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         // 2. 硬件解码配置：天猫魔盒 M19 (S912/Android 5.1) 核心使用 mediacodec-copy
         MPVLib.setPropertyString("hwdec", "mediacodec-copy")
         MPVLib.setPropertyString("hwdec-codecs", "all")
-        MPVLib.setPropertyInt("hwdec-extra-frames", 16) // 扩大帧缓冲池至 16 帧，杜绝 60fps 帧饥饿
-        MPVLib.setPropertyString("ao", "audiotrack")
-        MPVLib.setPropertyDouble("audio-buffer", 0.2)   // 200ms 音频缓冲，防止欠载音画不同步
+        MPVLib.setPropertyInt("hwdec-extra-frames", 16) // 扩大帧缓冲池至 16 帧，杜绝帧饥饿
 
-        // 3. 比例保持机制：严格禁止 gpu-dumb-mode，初始化锁定原片比例
+        // 3. 关键修复：音频时钟平滑与增大缓冲，彻底消除 DTS/多声道时钟抖动引发的 output 误判强丢帧
+        MPVLib.setPropertyString("ao", "audiotrack")
+        MPVLib.setPropertyDouble("audio-buffer", 0.3)   // 扩大至 300ms 音频缓冲，稳定 AudioTrack
+        MPVLib.setPropertyInt("autosync", 30)           // 平滑音画同步抖动，吸收系统时钟汇报误差
+        MPVLib.setPropertyString("video-sync", "audio")
+
+        // 4. 关键修复：禁止激进丢帧，改用保底的 vo 丢帧，确保芯片解出来的帧全部送显上屏
+        MPVLib.setPropertyString("framedrop", "vo")
+        MPVLib.setPropertyString("hr-seek-framedrop", "no")
+
+        // 5. 比例保持机制：严格禁止 gpu-dumb-mode，初始化锁定原片比例
         MPVLib.setPropertyString("keepaspect", "yes")
         MPVLib.setPropertyDouble("panscan", 0.0)
 
-        // 4. 渲染管线调优：关闭 PBO 避免驱动层强制同步阻塞，限制 FBO 为 rgba8 降低总线压力
+        // 6. 渲染管线调优：关闭 PBO 避免驱动层强制同步阻塞，限制 FBO 为 rgba8 降低总线压力
         MPVLib.setPropertyString("opengl-pbo", "no")
         MPVLib.setPropertyString("scale", "bilinear")
         MPVLib.setPropertyString("cscale", "bilinear")
@@ -163,20 +171,17 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("deband", "no")
         MPVLib.setPropertyString("correct-downscaling", "no")
         MPVLib.setPropertyString("sigmoid-upscaling", "no")
-        MPVLib.setPropertyString("video-sync", "audio")
-        MPVLib.setPropertyString("framedrop", "yes")
-        MPVLib.setPropertyString("hr-seek-framedrop", "yes")
         MPVLib.setPropertyString("vd-lavc-threads", "4") // 限制 4 线程，防止过多上下文切换开销
         MPVLib.setPropertyString("vd-lavc-fast", "yes")
         MPVLib.setPropertyString("vd-lavc-skiploopfilter", "nonref")
 
-        // 5. 色彩映射：默认保持直通 (Auto)，普通 4K SDR 零额外着色负载；开启时由 applyHdrMode 接管
+        // 7. 色彩映射：默认保持直通 (Auto)，普通 4K SDR 零额外着色负载；开启时由 applyHdrMode 接管
         MPVLib.setPropertyString("target-prim", "auto")
         MPVLib.setPropertyString("target-trc", "auto")
         MPVLib.setPropertyString("tone-mapping", "auto")
         MPVLib.setPropertyString("hdr-compute-peak", "no")
 
-        // 6. 网络缓存：平稳 128MB 缓存，预读 30 秒，避免持续跑满 CPU 算力
+        // 8. 网络缓存：平稳 128MB 缓存，预读 30 秒，避免持续跑满 CPU 算力
         MPVLib.setPropertyString("cache", "yes")
         MPVLib.setPropertyString("cache-secs", "30")
         MPVLib.setPropertyString("demuxer-max-bytes", "${128 * 1024 * 1024}")
@@ -185,7 +190,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("demuxer-hysteresis-secs", "5")
         MPVLib.setPropertyString("demuxer-thread", "yes")
 
-        // 7. 全局 TLS 兼容配置（解决 Android 5.1 证书过期问题）
+        // 9. 全局 TLS 兼容配置（解决 Android 5.1 证书过期问题）
         val caFile = File(configDir, "cacert.pem")
         if (caFile.exists()) {
             MPVLib.setPropertyString("tls-ca-file", caFile.absolutePath)
@@ -429,7 +434,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             resetHideControlsTimer()
         }
 
-        // 重点：顶部快捷键支持一键呼出 / 关闭 MPV 原生统计面板
+        // 顶部快捷键支持一键呼出 / 关闭 MPV 原生统计面板
         binding.btnStats.setOnClickListener {
             MPVLib.command(arrayOf("script-binding", "stats/display-stats-toggle"))
             resetHideControlsTimer()
