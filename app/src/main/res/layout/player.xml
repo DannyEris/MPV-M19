@@ -106,7 +106,7 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
-        <!-- 底部功能按钮横向容器（自动支持超出滚动，避免大屏小屏挤压） -->
+        <!-- 底部功能按钮横向容器 -->
         <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
