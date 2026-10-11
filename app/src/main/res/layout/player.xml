@@ -9,7 +9,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 顶部状态与功能控制栏 -->
+    <!-- 顶部控制栏 -->
     <LinearLayout
         android:id="@+id/top_controls"
         android:layout_width="match_parent"
