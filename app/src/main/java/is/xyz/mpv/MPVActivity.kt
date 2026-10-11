@@ -21,7 +21,6 @@ import `is`.xyz.mpv.MPVLib.MpvEvent
 import `is`.xyz.mpv.MPVLib.MpvFormat
 import org.json.JSONObject
 import java.io.File
-import java.lang.StringBuilder
 import java.util.TreeMap
 import kotlin.math.roundToInt
 
@@ -38,10 +37,10 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
     private var currentFilePath: String = ""
     private var videoMemoryKey: String = ""
 
-    // 屏幕比例: 0: 默认比例, 1: 16:9, 2: 4:3, 3: 裁切填充(无黑边), 4: 拉伸全屏
+    // 屏幕比例: 0: 原始(严格黑边), 1: 16:9, 2: 4:3, 3: 21:9(带鱼屏), 4: 裁切填充, 5: 拉伸全屏
     private var aspectIndex = 0
 
-    // 解码模式: 0: HW+ (mediacodec), 1: HW (mediacodec-copy), 2: SW (no)
+    // 解码模式: 0: HW (mediacodec-copy), 1: HW+ (mediacodec), 2: SW (no)
     private var decoderIndex = 0
 
     // HDR to SDR: 0: 自动, 1: 开启, 2: 关闭
@@ -53,14 +52,15 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
     private var introSkipped = false
     private var hasPlayedBeforeOutro = false
 
-    // 进度条遥控操作防竞争标记与防抖
+    // 进度条遥控操作防竞争与防抖机制
     private var userIsOperatingSeekbar = false
+    private var seekTargetSec = -1.0
     private val seekbarCommitRunnable = Runnable {
-        if (duration > 0) {
-            val targetSec = (binding.playbackSeekbar.progress.toFloat() / 1000f * duration)
-            MPVLib.command(arrayOf("seek", targetSec.toString(), "absolute+keyframes"))
+        if (seekTargetSec >= 0) {
+            MPVLib.setPropertyDouble("time-pos", seekTargetSec)
         }
-        userIsOperatingSeekbar = false
+        // 延时释放锁定，防止网络流在缓冲阶段把进度条弹回旧进度
+        handler.postDelayed({ userIsOperatingSeekbar = false }, 800)
     }
 
     private val hideControlsRunnable = Runnable { hideControls() }
@@ -118,22 +118,24 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         val configDir = applicationContext.filesDir.path
         val cacheDir = applicationContext.cacheDir.path
 
-        // 由 MPVView 驱动注册 Surface 回调 (原生 SurfaceView)
+        // 由 MPVView 驱动注册 SurfaceView 回调
         binding.player.initialize(configDir, cacheDir)
         MPVLib.addObserver(this)
 
-        // 1. 硬件解码配置：必须传入单一有效值 "mediacodec"，严禁传复合字符串避免回退软解
-        MPVLib.setPropertyString("hwdec", "mediacodec")
+        // 1. 核心修复：M19 (Android 5.1 API 22) 默认且必须使用 mediacodec-copy
+        MPVLib.setPropertyString("hwdec", "mediacodec-copy")
         MPVLib.setPropertyString("hwdec-codecs", "all")
         MPVLib.setPropertyString("ao", "audiotrack")
+        MPVLib.setPropertyDouble("audio-buffer", 0.2) // 200ms 音频缓冲，防止欠载引发画音卡顿
 
-        // 2. 严禁使用 gpu-dumb-mode！恢复官方原生画面纵横比计算
-        MPVLib.setPropertyString("profile", "fast")
+        // 2. 比例修复：强制信任封装容器的真实宽高比，屏蔽 S912 MediaCodec 的错误元数据
+        MPVLib.setPropertyString("video-aspect-method", "container")
         MPVLib.setPropertyString("keepaspect", "yes")
-        MPVLib.setPropertyString("video-aspect-override", "no")
+        MPVLib.setPropertyString("video-aspect-override", "-1")
         MPVLib.setPropertyDouble("panscan", 0.0)
 
-        // 3. 调优 4K 60fps 渲染管线，降低 Mali-T820 负载
+        // 3. 性能优化：为 4K 60fps HDR 释放 Mali-T820 GPU 与内存带宽
+        MPVLib.setPropertyString("profile", "fast")
         MPVLib.setPropertyString("scale", "bilinear")
         MPVLib.setPropertyString("cscale", "bilinear")
         MPVLib.setPropertyString("dscale", "bilinear")
@@ -142,15 +144,17 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("correct-downscaling", "no")
         MPVLib.setPropertyString("sigmoid-upscaling", "no")
         MPVLib.setPropertyString("hdr-compute-peak", "no")
-        MPVLib.setPropertyString("tone-mapping", "reinhard")
+        MPVLib.setPropertyString("tone-mapping", "clip") // 零着色器开销，彻底解决 4K HDR 运算掉帧
         MPVLib.setPropertyString("video-sync", "audio")
-        MPVLib.setPropertyString("framedrop", "vo")
+        MPVLib.setPropertyString("framedrop", "yes") // 允许解码层平滑丢弃非参考帧
         MPVLib.setPropertyString("vd-lavc-threads", "8")
+        MPVLib.setPropertyString("vd-lavc-fast", "yes")
+        MPVLib.setPropertyString("vd-lavc-skiploopfilter", "nonref") // 跳过非关键帧滤波，解码效率大幅提升
 
-        // 4. 网络流高码率缓冲与连接超时设置
-        MPVLib.setPropertyString("demuxer-max-bytes", "${128 * 1024 * 1024}")
-        MPVLib.setPropertyString("demuxer-max-back-bytes", "${32 * 1024 * 1024}")
-        MPVLib.setPropertyString("demuxer-readahead-secs", "30")
+        // 4. 2GB 内存配额调优，防止触发系统 LMK 强刷卡顿
+        MPVLib.setPropertyString("demuxer-max-bytes", "${64 * 1024 * 1024}")
+        MPVLib.setPropertyString("demuxer-max-back-bytes", "${16 * 1024 * 1024}")
+        MPVLib.setPropertyString("demuxer-readahead-secs", "20")
         MPVLib.setPropertyString("network-timeout", "30")
 
         // 5. 解决 Android 5.1 TLS 证书不信任问题
@@ -205,7 +209,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         skipOutroSec = sharedPrefs.getInt("outro_${videoMemoryKey.hashCode()}", 0)
         updateIntroOutroButtonsText()
 
-        // 提取 TVBox 请求头
+        // 请求头解析
         val headersMap = TreeMap<String, String>(java.lang.String.CASE_INSENSITIVE_ORDER)
 
         val httpHeadersBundle = intent.getBundleExtra("headers")
@@ -265,7 +269,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             ?: intent.getStringExtra("cookie")
         if (!explicitCookie.isNullOrEmpty()) headersMap["Cookie"] = explicitCookie
 
-        // 针对百度网盘做专属客户端伪装，其他站源默认伪装为 Chrome 浏览器防拦截
         val isBaidu = path.contains("baidupcs.com", ignoreCase = true) || path.contains("pcs.baidu.com", ignoreCase = true)
         val defaultBrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
@@ -295,7 +298,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             MPVLib.setPropertyString("http-header-fields", mpvHeaderList.joinToString(","))
         }
 
-        // 断点续播时间 (毫秒)
+        // 断点续播
         val startPositionMs = intent.getIntExtra("position", 0).takeIf { it > 0 }?.toLong()
             ?: intent.getLongExtra("position", 0L)
         if (startPositionMs > 0L) {
@@ -305,7 +308,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             MPVLib.setPropertyString("start", "0")
         }
 
-        // 启动播放
         MPVLib.command(arrayOf("loadfile", currentFilePath))
         hideControls()
     }
@@ -316,23 +318,22 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             resetHideControlsTimer()
         }
 
-        // 解码器切换快捷按钮 (HW+ / HW / SW)
         binding.btnDecoder.setOnClickListener {
             cycleDecoder()
             resetHideControlsTimer()
         }
 
-        // 进度条事件：兼容遥控器与触屏拖动
+        // 修复遥控器 SeekBar 拖动事件
         binding.playbackSeekbar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser && duration > 0) {
                     userIsOperatingSeekbar = true
-                    val targetSec = (progress.toFloat() / 1000f * duration).roundToInt()
-                    binding.timeCurrent.text = formatTime(targetSec)
+                    seekTargetSec = progress.toDouble() / 1000.0 * duration
+                    binding.timeCurrent.text = formatTime(seekTargetSec.roundToInt())
                     
-                    // 遥控器方向键调节时进行防抖异步提交，解决遥控器拖动不生效的问题
+                    // 防抖异步提交
                     handler.removeCallbacks(seekbarCommitRunnable)
-                    handler.postDelayed(seekbarCommitRunnable, 250)
+                    handler.postDelayed(seekbarCommitRunnable, 200)
                 }
             }
 
@@ -346,10 +347,10 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 handler.removeCallbacks(seekbarCommitRunnable)
                 val progress = seekBar?.progress ?: 0
                 if (duration > 0) {
-                    val targetSec = progress.toFloat() / 1000f * duration
-                    MPVLib.command(arrayOf("seek", targetSec.toString(), "absolute+keyframes"))
+                    seekTargetSec = progress.toDouble() / 1000.0 * duration
+                    MPVLib.setPropertyDouble("time-pos", seekTargetSec)
                 }
-                userIsOperatingSeekbar = false
+                handler.postDelayed({ userIsOperatingSeekbar = false }, 800)
                 resetHideControlsTimer()
             }
         })
@@ -436,14 +437,14 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         decoderIndex = (decoderIndex + 1) % 3
         when (decoderIndex) {
             0 -> {
+                MPVLib.setPropertyString("hwdec", "mediacodec-copy")
+                binding.btnDecoder.text = "解码: HW"
+                Toast.makeText(this, "已切换为: 硬件拷贝 (HW，M19推荐)", Toast.LENGTH_SHORT).show()
+            }
+            1 -> {
                 MPVLib.setPropertyString("hwdec", "mediacodec")
                 binding.btnDecoder.text = "解码: HW+"
                 Toast.makeText(this, "已切换为: 硬件直出 (HW+)", Toast.LENGTH_SHORT).show()
-            }
-            1 -> {
-                MPVLib.setPropertyString("hwdec", "mediacodec-copy")
-                binding.btnDecoder.text = "解码: HW"
-                Toast.makeText(this, "已切换为: 硬件拷贝 (HW)", Toast.LENGTH_SHORT).show()
             }
             2 -> {
                 MPVLib.setPropertyString("hwdec", "no")
@@ -482,7 +483,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}:${getString(R.string.hdr_auto)}"
             }
             1 -> {
-                MPVLib.setPropertyString("tone-mapping", "mobius")
+                MPVLib.setPropertyString("tone-mapping", "clip") // 极致性能模式
                 MPVLib.setPropertyString("target-trc", "srgb")
                 MPVLib.setPropertyString("hdr-compute-peak", "no")
                 if (updateText) binding.btnHdrMode.text = "${getString(R.string.hdr_to_sdr)}:${getString(R.string.hdr_on)}"
@@ -497,13 +498,14 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
     }
 
     private fun cycleAspectRatio() {
-        aspectIndex = (aspectIndex + 1) % 5
+        aspectIndex = (aspectIndex + 1) % 6
         when (aspectIndex) {
             0 -> {
-                // 默认比例：严格遵照原片宽高比，居中显示，两侧黑边填充，绝不拉伸
+                // 默认比例：严格居中保留黑边，杜绝拉伸
+                MPVLib.setPropertyString("video-aspect-method", "container")
                 MPVLib.setPropertyString("keepaspect", "yes")
                 MPVLib.setPropertyDouble("panscan", 0.0)
-                MPVLib.setPropertyString("video-aspect-override", "no")
+                MPVLib.setPropertyString("video-aspect-override", "-1")
                 binding.btnAspectRatio.text = getString(R.string.aspect_default)
             }
             1 -> {
@@ -519,14 +521,21 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 binding.btnAspectRatio.text = getString(R.string.aspect_4_3)
             }
             3 -> {
-                // 裁切填充：等比放大直到占满整个屏幕，切掉黑边，不破坏人物纵横比
+                // 21:9 (带鱼屏专用)
+                MPVLib.setPropertyDouble("panscan", 0.0)
+                MPVLib.setPropertyString("video-aspect-override", "2.35:1")
+                binding.btnAspectRatio.text = getString(R.string.aspect_21_9)
+            }
+            4 -> {
+                // 裁切填充：等比放大充满视口，无黑边无变形
+                MPVLib.setPropertyString("video-aspect-method", "container")
                 MPVLib.setPropertyString("keepaspect", "yes")
-                MPVLib.setPropertyString("video-aspect-override", "no")
+                MPVLib.setPropertyString("video-aspect-override", "-1")
                 MPVLib.setPropertyDouble("panscan", 1.0)
                 binding.btnAspectRatio.text = getString(R.string.aspect_crop)
             }
-            4 -> {
-                // 拉伸全屏：强行铺满视口像素
+            5 -> {
+                // 拉伸全屏：强行拉满
                 val metrics = resources.displayMetrics
                 val ratio = metrics.widthPixels.toFloat() / metrics.heightPixels.toFloat()
                 MPVLib.setPropertyDouble("panscan", 0.0)
@@ -664,7 +673,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
 
                     if (!introSkipped && skipIntroSec > 0) {
                         if (sec < skipIntroSec) {
-                            MPVLib.command(arrayOf("seek", skipIntroSec.toString(), "absolute"))
+                            MPVLib.setPropertyDouble("time-pos", skipIntroSec.toDouble())
                             Toast.makeText(this@MPVActivity, R.string.toast_intro_skipped, Toast.LENGTH_SHORT).show()
                         }
                         introSkipped = true
@@ -736,7 +745,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         handler.postDelayed(hideControlsRunnable, 6000)
     }
 
-    // 左右键独立轻量 Toast 提示
+    // 左右方向键轻量无打扰 Toast 提示
     private var seekToast: Toast? = null
     private fun showSeekToast(msg: String) {
         seekToast?.cancel()
@@ -746,34 +755,31 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         }
     }
 
-    // 左右键长按平滑加速控制参数
+    // 左右键长按阶梯加速参数
     private var lastSeekDispatchTime = 0L
     private var totalSeekDelta = 0
-    private var isLongPressSeeking = false
 
     private fun handleDpadSeek(isForward: Boolean, event: KeyEvent): Boolean {
         val now = System.currentTimeMillis()
         val dir = if (isForward) 1 else -1
 
         if (event.repeatCount == 0) {
-            // 单击点按：固定快退/快进 10 秒
-            isLongPressSeeking = false
+            // 短按点按：快进/快退 10 秒
             totalSeekDelta = dir * 10
-            MPVLib.command(arrayOf("seek", (dir * 10).toString(), "relative"))
+            MPVLib.command(arrayOf("seek", totalSeekDelta.toString(), "relative"))
             val targetPos = (currentPos + totalSeekDelta).coerceIn(0, duration)
-            val sign = if (dir > 0) "+" else ""
+            val sign = if (totalSeekDelta > 0) "+" else ""
             showSeekToast("${sign}${totalSeekDelta}秒 (${formatTime(targetPos)})")
             lastSeekDispatchTime = now
             return true
         }
 
-        // 长按模式：节流 250ms 防止指令过多打爆解码器，并随着时长智能递增步长
-        isLongPressSeeking = true
-        if (now - lastSeekDispatchTime >= 250L) {
+        // 长按模式：200ms 防抖节流，按住不放阶梯加速
+        if (now - lastSeekDispatchTime >= 200L) {
             val step = when {
-                event.repeatCount > 20 -> 60 // 超过约2秒，每跳1分钟
-                event.repeatCount > 8  -> 30 // 超过约1秒，每跳30秒
-                else                   -> 15 // 初始长按，每跳15秒
+                event.repeatCount > 25 -> 60 // 超过约2.5秒，步进 60 秒
+                event.repeatCount > 10 -> 30 // 超过约1秒，步进 30 秒
+                else                   -> 15 // 初始长按，步进 15 秒
             } * dir
 
             totalSeekDelta += step
@@ -808,7 +814,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                         return true
                     }
                 }
-                // 3. 左右方向键：隐藏时执行带长按加速的平滑快退/快进，不弹出面板
+                // 3. 左右方向键：隐藏时执行短按10秒 / 长按平滑加速，绝不呼出面板
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
                     if (!isControlsShowing) {
                         return handleDpadSeek(isForward = false, event = event)
@@ -819,7 +825,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                         return handleDpadSeek(isForward = true, event = event)
                     }
                 }
-                // 遥控器独立多媒体按键
+                // 遥控器独立多媒体键
                 KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
                     togglePlayPause()
                     return true
