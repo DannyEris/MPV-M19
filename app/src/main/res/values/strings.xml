@@ -13,11 +13,11 @@
     <string name="dialog_reset">Reset</string>
     <string name="track_audio">Audio</string>
     <string name="track_subs">Subs</string>
-    <string name="track_off">Off</string>
+    <string name="track_off">关闭</string>
     <string name="track_primary">Primary</string>
     <string name="track_secondary">Secondary</string>
-    <string name="btn_play">Play</string>
-    <string name="btn_pause">Pause</string>
+    <string name="btn_play">播放</string>
+    <string name="btn_pause">暂停</string>
     <string name="btn_plus" translatable="false">+</string>
     <string name="btn_minus" translatable="false">-</string>
     <string name="ui_volume">Volume: %d%%</string>
@@ -32,7 +32,7 @@
     <string name="ui_track_title_lang">#%1$d: %2$s (%3$s)</string>
     <string name="format_fixed_number" translatable="false">%.0f</string>
     <string name="format_seconds">%.1f s</string>
-    <string name="title_speed_dialog">Playback speed</string>
+    <string name="title_speed_dialog">倍速播放</string>
     <string name="error_no_file">未获取到有效的播放地址</string>
     <string name="notice_file_appended">File(s) appended to playlist</string>
     <string name="exit_warning_playlist">%d playlist items remaining.\nDo you really want to exit?</string>
@@ -163,19 +163,22 @@
     <string name="toast_intro_skipped">已自动跳过片头</string>
     <string name="hdr_to_sdr">HDR映射</string>
     <string name="hdr_auto">自动</string>
-    <string name="hdr_on">开启(SDR)</string>
+    <string name="hdr_on">鲜艳</string>
     <string name="hdr_off">关闭</string>
-    <string name="aspect_default">默认原始</string>
-    <string name="aspect_crop">裁切填充</string>
+    <string name="aspect_default">默认</string>
+    <string name="aspect_crop">裁切</string>
     <string name="aspect_16_9">16:9</string>
     <string name="aspect_4_3">4:3</string>
-    <string name="aspect_fill">拉伸全屏</string>
+    <string name="aspect_fill">全屏</string>
     <string name="aspect_original">原始 1:1</string>
+    <string name="btn_zoom_in">放大</string>
+    <string name="btn_zoom_reset">重置</string>
+    <string name="btn_zoom_out">缩小</string>
     <string name="btn_aspect_ratio">画面比例</string>
     <string name="btn_subtitle_settings">字幕</string>
     <string name="btn_audio_track">音轨</string>
     <string name="btn_video_track">视轨</string>
     <string name="track_video">视频轨</string>
-    <string name="sub_font_size">字幕字体缩放</string>
-    <string name="sub_vertical_position">字幕垂直位置</string>
+    <string name="sub_font_size">字幕大小</string>
+    <string name="sub_vertical_position">字幕位置</string>
 </resources>
