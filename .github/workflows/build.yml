@@ -32,7 +32,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 安装编译依赖并通过 pip3 升级 Meson (>=1.3.0) 与 Ninja
+      # 安装基础编译依赖并通过 pip3 升级 Meson (>=1.3.0) 与 Ninja
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -62,7 +62,7 @@ jobs:
         run: |
           ./download.sh || (echo ">> 检测到网络抖动，5秒后重试..." && sleep 5 && ./download.sh)
 
-      # 编译底层 C/C++ 库 (M19 仅编译 armv7l)
+      # 编译底层 C/C++ 库 (针对 M19 默认仅编译 armv7l)
       - name: Build Native Libraries
         working-directory: buildscripts
         run: |
@@ -81,10 +81,7 @@ jobs:
             ./buildall.sh --arch arm64 mpv
           fi
           
-          # 清理软链接避免 Gradle 冲突
           rm -rf ../app/src/main/jniLibs
-          
-          # 仅编译 JNI 胶水库
           NO_GRADLE=1 ./buildall.sh -n
 
       # 构建 Android Release APK
