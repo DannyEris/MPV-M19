@@ -152,50 +152,46 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("keepaspect", "yes")
         MPVLib.setPropertyDouble("panscan", 0.0)
 
-        // 4. 4K 60fps 基础极速渲染管线（兼顾 Mali-T820 低带宽与平滑丢帧保护）
+        // 4. 渲染管线调优：关闭 PBO 避免驱动层强制同步阻塞，限制 FBO 为 rgba8 降低总线压力
+        MPVLib.setPropertyString("opengl-pbo", "no")
         MPVLib.setPropertyString("scale", "bilinear")
         MPVLib.setPropertyString("cscale", "bilinear")
         MPVLib.setPropertyString("dscale", "bilinear")
-        MPVLib.setPropertyString("fbo-format", "rgba8") // 限制 FBO 为 8 位带宽，节省显存带宽
+        MPVLib.setPropertyString("fbo-format", "rgba8")
         MPVLib.setPropertyString("dither-depth", "no")
+        MPVLib.setPropertyString("dither", "no")
+        MPVLib.setPropertyString("deband", "no")
         MPVLib.setPropertyString("correct-downscaling", "no")
         MPVLib.setPropertyString("sigmoid-upscaling", "no")
         MPVLib.setPropertyString("video-sync", "audio")
-        MPVLib.setPropertyString("framedrop", "vo")      // 允许渲染层平滑丢弃过期帧，保持 60fps 稳定
-        MPVLib.setPropertyString("vd-lavc-threads", "8")
+        MPVLib.setPropertyString("framedrop", "yes")
+        MPVLib.setPropertyString("hr-seek-framedrop", "yes")
+        MPVLib.setPropertyString("vd-lavc-threads", "4") // 限制 4 线程，防止过多上下文切换开销
         MPVLib.setPropertyString("vd-lavc-fast", "yes")
-        MPVLib.setPropertyString("vd-lavc-skiploopfilter", "nonref") // 跳过非参考帧滤波，解码效率成倍提升
+        MPVLib.setPropertyString("vd-lavc-skiploopfilter", "nonref")
 
-        // 5. 核心色彩：强制锁定电视标准色域 (BT.709) 与电视标准伽马 (Gamma 2.2)，彻底消除白雾发灰
-        MPVLib.setPropertyString("target-prim", "bt.709")
-        MPVLib.setPropertyString("target-trc", "gamma2.2")
+        // 5. 色彩映射：默认保持直通 (Auto)，普通 4K SDR 零额外着色负载；开启时由 applyHdrMode 接管
+        MPVLib.setPropertyString("target-prim", "auto")
+        MPVLib.setPropertyString("target-trc", "auto")
+        MPVLib.setPropertyString("tone-mapping", "auto")
         MPVLib.setPropertyString("hdr-compute-peak", "no")
 
-        // 6. 深度内存缓存机制 (RAM Cache)：256MB 物理内存池
+        // 6. 网络缓存：平稳 128MB 缓存，预读 30 秒，避免持续跑满 CPU 算力
         MPVLib.setPropertyString("cache", "yes")
-        MPVLib.setPropertyString("cache-secs", "120")
-        MPVLib.setPropertyString("demuxer-max-bytes", "${256 * 1024 * 1024}") // 256MB 快速内存缓冲区
-        MPVLib.setPropertyString("demuxer-max-back-bytes", "${64 * 1024 * 1024}")
-        MPVLib.setPropertyString("demuxer-readahead-secs", "120")
-        MPVLib.setPropertyString("demuxer-hysteresis-secs", "10")
-        MPVLib.setPropertyString("demuxer-thread", "yes")          // 独立解复用线程，网络 I/O 绝不卡死渲染
-        MPVLib.setPropertyString("stream-buffer-size", "4194304")
-        MPVLib.setPropertyString("network-timeout", "30")
+        MPVLib.setPropertyString("cache-secs", "30")
+        MPVLib.setPropertyString("demuxer-max-bytes", "${128 * 1024 * 1024}")
+        MPVLib.setPropertyString("demuxer-max-back-bytes", "${32 * 1024 * 1024}")
+        MPVLib.setPropertyString("demuxer-readahead-secs", "30")
+        MPVLib.setPropertyString("demuxer-hysteresis-secs", "5")
+        MPVLib.setPropertyString("demuxer-thread", "yes")
 
-        // 启用 OpenGL 异步像素缓冲对象 (PBO)，减轻 CPU 搬运数据时的内存等待
-        MPVLib.setPropertyString("opengl-pbo", "yes")
-
-        // 7. 协议层自动重连与证书校验忽略（兼顾解复用与流层，解决 Android 5.1 证书过期）
+        // 7. 全局 TLS 兼容配置（解决 Android 5.1 证书过期问题）
         val caFile = File(configDir, "cacert.pem")
         if (caFile.exists()) {
             MPVLib.setPropertyString("tls-ca-file", caFile.absolutePath)
         }
         MPVLib.setPropertyString("tls-verify", "no")
-
-        // 核心：开放 HLS / M3U8 加密协议与全线重连，并禁止 FFmpeg 校验失效根证书
-        val lavfOpts = "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,tls_verify=0,protocol_whitelist=file\\,http\\,https\\,tcp\\,tls\\,crypto\\,data"
-        MPVLib.setPropertyString("stream-lavf-o", lavfOpts)
-        MPVLib.setPropertyString("demuxer-lavf-o", "tls_verify=0,protocol_whitelist=file\\,http\\,https\\,tcp\\,tls\\,crypto\\,data")
+        MPVLib.setPropertyString("network-timeout", "20")
 
         // 初始化 HDR 状态
         hdrMode = sharedPrefs.getInt("hdr_to_sdr_mode", 0)
@@ -206,6 +202,61 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         super.onNewIntent(intent)
         setIntent(intent)
         intent?.let { handleIntent(it) }
+    }
+
+    // 智能解析 URL 中附加的 headers（兼容各类 TVBox 分支与爬虫格式）
+    private fun parseUrlAndHeaders(rawPath: String): Pair<String, Map<String, String>> {
+        var cleanUrl = rawPath.trim()
+        val extraHeaders = mutableMapOf<String, String>()
+
+        // 1. 处理 "|User-Agent=xxx&Cookie=yyy" (IPTV / VLC 格式)
+        if (cleanUrl.contains("|")) {
+            val parts = cleanUrl.split("|", limit = 2)
+            cleanUrl = parts[0].trim()
+            if (parts.size > 1) {
+                parts[1].trim().split("&").forEach { param ->
+                    val kv = param.split("=", limit = 2)
+                    if (kv.size == 2 && kv[0].isNotEmpty() && kv[1].isNotEmpty()) {
+                        extraHeaders[kv[0].trim()] = kv[1].trim()
+                    }
+                }
+            }
+        }
+
+        // 2. 处理 ";headers={...}" 或 ";header={...}" (TVBox 常见格式)
+        if (cleanUrl.contains(";headers=") || cleanUrl.contains(";header=")) {
+            val delimiter = if (cleanUrl.contains(";headers=")) ";headers=" else ";header="
+            val parts = cleanUrl.split(delimiter, limit = 2)
+            cleanUrl = parts[0].trim()
+            if (parts.size > 1) {
+                try {
+                    val json = JSONObject(parts[1].trim())
+                    val keys = json.keys()
+                    while (keys.hasNext()) {
+                        val k = keys.next()
+                        val v = json.optString(k, "")
+                        if (k.isNotEmpty() && v.isNotEmpty()) extraHeaders[k] = v
+                    }
+                } catch (e: Exception) {
+                    // Ignore parse error
+                }
+            }
+        }
+
+        // 3. 处理 ";{User-Agent@xxx&&Cookie@yyy}" (部分影视仓分支)
+        if (cleanUrl.contains(";{") && cleanUrl.endsWith("}")) {
+            val idx = cleanUrl.indexOf(";{")
+            val headerContent = cleanUrl.substring(idx + 2, cleanUrl.length - 1)
+            cleanUrl = cleanUrl.substring(0, idx).trim()
+            headerContent.split("&&").forEach { item ->
+                val kv = item.split("@", limit = 2)
+                if (kv.size == 2 && kv[0].isNotEmpty() && kv[1].isNotEmpty()) {
+                    extraHeaders[kv[0].trim()] = kv[1].trim()
+                }
+            }
+        }
+
+        return Pair(cleanUrl, extraHeaders)
     }
 
     private fun handleIntent(intent: Intent) {
@@ -221,7 +272,10 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             return
         }
 
-        currentFilePath = path
+        // 剥离 URL 尾部污染的 headers 参数，提取纯净真实链接
+        val (cleanedPath, urlExtractedHeaders) = parseUrlAndHeaders(path)
+        currentFilePath = cleanedPath
+
         introSkipped = false
         hasPlayedBeforeOutro = false
         containerVideoWidth = 0
@@ -234,10 +288,11 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         }
         binding.titleTextView.text = title
 
-        val cleanPath = if (uri != null && uri.scheme != null) {
-            "${uri.scheme}://${uri.host ?: ""}${uri.path ?: ""}"
+        val cleanUri = Uri.parse(currentFilePath)
+        val cleanPath = if (cleanUri != null && cleanUri.scheme != null) {
+            "${cleanUri.scheme}://${cleanUri.host ?: ""}${cleanUri.path ?: ""}"
         } else {
-            path
+            currentFilePath
         }
         videoMemoryKey = if (!title.isNullOrEmpty()) title else cleanPath
 
@@ -245,10 +300,13 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         skipOutroSec = sharedPrefs.getInt("outro_${videoMemoryKey.hashCode()}", 0)
         updateIntroOutroButtonsText()
 
-        // 提取 TVBox 请求头
+        // 综合提取 TVBox 请求头（优先注入 URL 提取出的参数）
         val headersMap = TreeMap<String, String>(java.lang.String.CASE_INSENSITIVE_ORDER)
+        headersMap.putAll(urlExtractedHeaders)
 
+        // 1. Bundle 格式（兼顾 headers 与 header）
         val httpHeadersBundle = intent.getBundleExtra("headers")
+            ?: intent.getBundleExtra("header")
             ?: intent.getBundleExtra("android.media.intent.extra.HTTP_HEADERS")
         httpHeadersBundle?.let { bundle ->
             for (k in bundle.keySet()) {
@@ -257,7 +315,9 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
         }
 
+        // 2. 数组格式
         val headersArray = intent.getStringArrayExtra("headers")
+            ?: intent.getStringArrayExtra("header")
         if (headersArray != null && headersArray.size >= 2) {
             for (i in 0 until headersArray.size step 2) {
                 val k = headersArray[i]
@@ -266,8 +326,10 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
         }
 
+        // 3. Map / 序列化对象
         try {
-            val serializableMap = intent.getSerializableExtra("headers") as? Map<*, *>
+            val serializableMap = (intent.getSerializableExtra("headers") as? Map<*, *>)
+                ?: (intent.getSerializableExtra("header") as? Map<*, *>)
             serializableMap?.forEach { (k, v) ->
                 val key = k?.toString() ?: ""
                 val value = v?.toString() ?: ""
@@ -277,7 +339,9 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             // Ignore format mismatch
         }
 
+        // 4. JSON 字符串
         val headersJsonStr = intent.getStringExtra("headers")
+            ?: intent.getStringExtra("header")
         if (!headersJsonStr.isNullOrEmpty() && headersJsonStr.trim().startsWith("{")) {
             try {
                 val json = JSONObject(headersJsonStr)
@@ -292,6 +356,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             }
         }
 
+        // 5. 补充单个显式参数
         val explicitUa = intent.getStringExtra("User-Agent")
             ?: intent.getStringExtra("user-agent")
             ?: intent.getStringExtra("user_agent")
@@ -305,34 +370,26 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             ?: intent.getStringExtra("cookie")
         if (!explicitCookie.isNullOrEmpty()) headersMap["Cookie"] = explicitCookie
 
-        // 检测链接类型 (百度 / M3U8秒播)
-        val isBaidu = path.contains("baidupcs.com", ignoreCase = true) ||
-                path.contains("pcs.baidu.com", ignoreCase = true) ||
-                path.contains("baidu.com", ignoreCase = true)
-        val isM3u8 = path.contains(".m3u8", ignoreCase = true) ||
-                path.contains("m3u8", ignoreCase = true) ||
-                path.contains("hls", ignoreCase = true)
+        // 检测链接类型 (百度 / M3U8 秒播)
+        val isBaidu = currentFilePath.contains("baidupcs.com", ignoreCase = true) ||
+                currentFilePath.contains("pcs.baidu.com", ignoreCase = true) ||
+                currentFilePath.contains("baidu.com", ignoreCase = true)
 
         val defaultBrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
-        // 1. User-Agent：严格优先使用 TVBox 传入的专属 UA（特别是百度 PCS）；仅在未传入时才做智能保底
+        // 1. User-Agent：优先使用 TVBox 传入的专属 UA；若未传入，百度网盘使用直链规范的 pan.baidu.com，其他默认浏览器 UA
         var finalUa = headersMap["User-Agent"]
         if (finalUa.isNullOrEmpty()) {
-            finalUa = if (isBaidu) {
-                "netdisk;11.12.3;PC;PC-Windows;10.0.19042;WindowsBaiduYunGuanJia"
-            } else {
-                defaultBrowserUa
-            }
+            finalUa = if (isBaidu) "pan.baidu.com" else defaultBrowserUa
         }
         MPVLib.setPropertyString("user-agent", finalUa)
 
-        // 2. Referer：百度绝不发送伪造 Referer；秒播 M3U8 在缺失时自动补全站点域名以通过防盗链
-        var customRef = headersMap["Referer"]
-        if (customRef.isNullOrEmpty() && isM3u8 && uri != null && !uri.host.isNullOrEmpty()) {
-            customRef = "${uri.scheme ?: "https"}://${uri.host}/"
-        }
+        // 2. Referer：仅使用 TVBox 显式传入的 Referer，杜绝伪造 Referer 导致百度 PCS 拦截
+        val customRef = headersMap["Referer"]
         if (!customRef.isNullOrEmpty()) {
             MPVLib.setPropertyString("referrer", customRef)
+        } else {
+            MPVLib.setPropertyString("referrer", "")
         }
 
         // 3. 构建全套请求标头 (规范添加空格，转义逗号)
@@ -347,7 +404,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             MPVLib.setPropertyString("http-header-fields", mpvHeaderList.joinToString(","))
         }
 
-        // 断点续播
+        // 断点续播时间 (毫秒)
         val startPositionMs = intent.getIntExtra("position", 0).takeIf { it > 0 }?.toLong()
             ?: intent.getLongExtra("position", 0L)
         if (startPositionMs > 0L) {
@@ -478,7 +535,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             updateIntroOutroButtonsText()
             Toast.makeText(this, getString(R.string.toast_outro_set, formatTime(skipOutroSec)), Toast.LENGTH_SHORT).show()
             resetHideControlsTimer()
-            true
         }
         binding.btnOutro.setOnLongClickListener {
             skipOutroSec = 0
@@ -764,7 +820,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 val codec = MPVLib.getPropertyString("track-list/$i/codec")?.uppercase() ?: ""
                 val channels = MPVLib.getPropertyInt("track-list/$i/demux-channel-count") ?: 0
                 val chStr = if (channels > 2) "${channels}声道" else if (channels == 2) "立体声" else if (channels == 1) "单声道" else ""
-                
+
                 val spec = listOf(codec, chStr, lang).filter { it.isNotEmpty() }.joinToString(" ")
                 val label = if (spec.isNotEmpty()) "$title [$spec]" else title
                 audioTracks.add(Pair(id, label))
@@ -797,7 +853,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 val fps = MPVLib.getPropertyDouble("track-list/$i/demux-fps") ?: 0.0
                 val fpsStr = if (fps > 0) "${fps.roundToInt()}fps" else ""
                 val resStr = if (w > 0 && h > 0) "${w}x${h}" else ""
-                
+
                 val spec = listOf(codec, resStr, fpsStr).filter { it.isNotEmpty() }.joinToString(" ")
                 val label = if (spec.isNotEmpty()) "$title [$spec]" else title
                 videoTracks.add(Pair(id, label))
