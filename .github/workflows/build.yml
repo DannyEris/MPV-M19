@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -32,7 +32,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # 安装基础编译依赖并通过 pip3 升级 Meson (>=1.3.0) 与 Ninja
+      # 安装编译依赖并通过 pip3 升级 Meson (>=1.3.0) 与 Ninja
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -40,73 +40,12 @@ jobs:
           sudo pip3 install --upgrade meson ninja
           meson --version
 
-      # 规范化脚本换行符与执行权限
+      # 统一脚本换行符与权限
       - name: Grant Execute Permissions and Fix Line Endings
         run: |
           sed -i 's/\r$//' buildscripts/*.sh buildscripts/scripts/*.sh gradlew || true
           chmod -R +x buildscripts
           chmod +x gradlew
-
-      # 智能合并字符串：确保原版词条完整的同时，保留 TVBox 所有定制词条
-      - name: Merge Custom Strings into Strings XML
-        run: |
-          STRINGS_FILE="app/src/main/res/values/strings.xml"
-          if ! grep -q 'name="mpv_activity"' "$STRINGS_FILE"; then
-            echo ">> 正在从初始提交提取基础词条..."
-            ORIG_COMMIT=$(git rev-list --max-parents=0 HEAD | head -n 1)
-            git show "$ORIG_COMMIT:$STRINGS_FILE" > "$STRINGS_FILE"
-          fi
-
-          python3 - << 'EOF'
-          import xml.etree.ElementTree as ET
-
-          path = "app/src/main/res/values/strings.xml"
-          tree = ET.parse(path)
-          root = tree.getroot()
-
-          custom_strings = {
-              "error_no_file": "未获取到有效的播放地址",
-              "btn_play": "播放",
-              "btn_pause": "暂停",
-              "btn_skip_intro": "设片头",
-              "btn_skip_outro": "设片尾",
-              "toast_intro_set": "已记录片头跳过点：%s (长按清除)",
-              "toast_intro_reset": "已清除片头跳过设置",
-              "toast_outro_set": "已记录片尾跳过点：%s (长按清除)",
-              "toast_outro_reset": "已清除片尾跳过设置",
-              "toast_intro_skipped": "已自动跳过片头",
-              "hdr_to_sdr": "HDR映射",
-              "hdr_auto": "自动",
-              "hdr_on": "开启(SDR)",
-              "hdr_off": "关闭",
-              "aspect_default": "默认比例",
-              "aspect_16_9": "16:9",
-              "aspect_4_3": "4:3",
-              "aspect_fill": "拉伸全屏",
-              "aspect_original": "原始画面",
-              "aspect_crop": "裁剪填充",
-              "btn_subtitle_settings": "字幕",
-              "btn_audio_track": "音轨",
-              "btn_video_track": "视轨",
-              "track_off": "关闭",
-              "track_subs": "选择字幕轨道",
-              "sub_font_size": "字幕字体缩放",
-              "sub_vertical_position": "字幕垂直位置",
-              "sub_delay": "字幕时间轴微调",
-              "title_speed_dialog": "播放倍速调节"
-          }
-
-          existing_names = {elem.attrib.get("name") for elem in root.findall("string")}
-          added = 0
-          for name, val in custom_strings.items():
-              if name not in existing_names:
-                  elem = ET.SubElement(root, "string", {"name": name})
-                  elem.text = val
-                  added += 1
-
-          tree.write(path, encoding="utf-8", xml_declaration=True)
-          print(f">> 成功确保 {added} 项 TVBox 定制词条合并入库。")
-          EOF
 
       # 链接宿主机 Android SDK
       - name: Prepare Environment & Link SDK
@@ -123,7 +62,7 @@ jobs:
         run: |
           ./download.sh || (echo ">> 检测到网络抖动，5秒后重试..." && sleep 5 && ./download.sh)
 
-      # 编译底层 C/C++ 库 (针对 M19 默认仅编译 armv7l)
+      # 编译底层 C/C++ 库 (M19 仅编译 armv7l)
       - name: Build Native Libraries
         working-directory: buildscripts
         run: |
@@ -142,7 +81,10 @@ jobs:
             ./buildall.sh --arch arm64 mpv
           fi
           
+          # 清理软链接避免 Gradle 冲突
           rm -rf ../app/src/main/jniLibs
+          
+          # 仅编译 JNI 胶水库
           NO_GRADLE=1 ./buildall.sh -n
 
       # 构建 Android Release APK
