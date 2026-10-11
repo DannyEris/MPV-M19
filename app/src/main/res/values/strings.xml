@@ -1,8 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- This file contains resource definitions for displayed strings, allowing
-     them to be changed based on the locale and options. -->
 <resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
-    <!-- Simple strings. -->
     <string name="mpv_activity">mpv</string>
     <string name="label_share_intent">Play in mpv</string>
     <string name="title_activity_settings">Settings</string>
@@ -15,7 +12,7 @@
     <string name="dialog_next">Next</string>
     <string name="dialog_reset">Reset</string>
     <string name="track_audio">Audio</string>
-    <string name="track_subs">Subs</string> <!-- short for "Subtitles" -->
+    <string name="track_subs">Subs</string>
     <string name="track_off">Off</string>
     <string name="track_primary">Primary</string>
     <string name="track_secondary">Secondary</string>
@@ -35,8 +32,6 @@
     <string name="ui_track_title_lang">#%1$d: %2$s (%3$s)</string>
     <string name="format_fixed_number" translatable="false">%.0f</string>
     <string name="format_seconds">%.1f s</string>
-
-    <!-- Less simple strings -->
     <string name="title_speed_dialog">Playback speed</string>
     <string name="error_no_file">未获取到有效的播放地址</string>
     <string name="notice_file_appended">File(s) appended to playlist</string>
@@ -52,8 +47,6 @@
     <string name="notice_show_media_files">Showing media files only</string>
     <string name="option_remember_choice">Remember choice on next startup</string>
     <string name="uri_invalid_protocol">Invalid protocol</string>
-
-    <!-- Action buttons -->
     <string name="switch_orientation">Switch orientation</string>
     <string name="open_external_audio">Open external audio…</string>
     <string name="open_external_sub">Open external subtitle…</string>
@@ -72,140 +65,95 @@
     <string name="action_pick_file_old">Pick file (legacy)</string>
     <string name="action_external_storage">External storage</string>
     <string name="action_toggle_filter">Toggle filter</string>
-
-    <!-- Strings related to Settings -->
     <string name="pref_header_general">General</string>
     <string name="pref_header_general_summary"></string>
-
     <string name="pref_header_video">Video</string>
     <string name="pref_header_video_summary"></string>
-
     <string name="pref_header_ui">User interface</string>
     <string name="pref_header_ui_summary"></string>
-
     <string name="pref_header_gestures">Touch gestures</string>
     <string name="pref_header_gestures_summary"></string>
-
     <string name="pref_header_developer">Developer</string>
     <string name="pref_header_developer_summary"></string>
-
     <string name="pref_header_advanced">Advanced</string>
     <string name="pref_header_advanced_summary"></string>
-
     <string name="pref_header_about_mpv">About mpv</string>
     <string name="pref_header_about_mpv_summary"></string>
-
     <string name="pref_default_file_manager_path_title">Default file manager path</string>
     <string name="pref_default_file_manager_path_summary" translatable="false">%s</string>
-
     <string name="pref_material_you_theming_title">Material You</string>
     <string name="pref_material_you_theming_summary">Use dynamic colors</string>
-
     <string name="pref_default_audio_language_title">Default audio language</string>
     <string name="pref_default_audio_language_message">Audio language(s) to be selected by default when playing a video with multiple audio streams.\nTwo- or three-letter languages codes work. Multiple values can be delimited by comma.</string>
     <string name="pref_default_audio_language_summary" translatable="false">%s</string>
-
     <string name="pref_default_subtitle_language_title">Default subtitle language</string>
     <string name="pref_default_subtitle_language_message">Subtitle language(s) to be selected by default when playing a video with multiple subtitles.\nTwo- or three-letter languages codes work. Multiple values can be delimited by comma.</string>
     <string name="pref_default_subtitle_language_summary" translatable="false">%s</string>
-
     <string name="pref_hardware_decoding_title">Hardware decoding</string>
     <string name="pref_hardware_decoding_summary">Attempt hardware decoding before falling back to software. This is generally more efficient.</string>
-
     <string name="pref_background_play_title">Background playback</string>
     <string name="pref_background_play_summary">Decide when playback should be automatically resumed background.</string>
     <string name="pref_background_play_default" translatable="false">never</string>
-
     <string name="pref_save_position_title">Save position on quit</string>
     <string name="pref_save_position_summary">Remember current playback position on exit. When the same file is played again mpv will seek to the previous position.</string>
-
     <string name="pref_auto_rotation_title">Screen orientation</string>
     <string name="pref_auto_rotation_summary">Decide which orientation mpv will play landscape or portrait videos in.</string>
     <string name="pref_auto_rotation_default" translatable="false">auto</string>
-
     <string name="pref_display_media_title_title">Display media title (videos)</string>
     <string name="pref_display_media_title_summary">Display the title or filename of videos above the controls. Audio files will always display their metadata.</string>
-
     <string name="pref_bottom_controls_title">Show controls at bottom of screen</string>
-
     <string name="pref_no_ui_pause_title">Continue playback during UI popups</string>
     <string name="pref_no_ui_pause_summary">Continue playback while popups are open. (e.g. during the playlist dialog)</string>
     <string name="pref_no_ui_pause_default" translatable="false">audio-only</string>
-
     <string name="pref_playlist_exit_warning_title">Playlist exit confirmation</string>
     <string name="pref_playlist_exit_warning_summary">Show a confirmation dialog before exiting when a playlist is loaded.</string>
-
     <string name="pref_seek_gesture_smooth_title">Smoother seeking</string>
-
     <string name="pref_gesture_horiz_title">Horizontal drag</string>
     <string name="pref_gesture_horiz_default" translatable="false">seek</string>
-
     <string name="pref_gesture_vert_left_title">Vertical drag (left side)</string>
     <string name="pref_gesture_vert_left_default" translatable="false">bright</string>
-
     <string name="pref_gesture_vert_right_title">Vertical drag (right side)</string>
     <string name="pref_gesture_vert_right_default" translatable="false">volume</string>
-
     <string name="pref_gesture_tap_left_title">Double tap (left)</string>
     <string name="pref_gesture_tap_left_default" translatable="false">none</string>
-
     <string name="pref_gesture_tap_center_title">Double tap (center)</string>
     <string name="pref_gesture_tap_center_default" translatable="false">none</string>
-
     <string name="pref_gesture_tap_right_title">Double tap (right)</string>
     <string name="pref_gesture_tap_right_default" translatable="false">none</string>
-
-    <string name="pref_gesture_custom_helptext">When a tap gesture is set to \"Custom\" it can be bound to any command by editing input.conf. The key codes are <b>0x10001</b> (left), <b>0x10002</b> (center), <b>0x10003</b> (right).\nFor example you could bind to seeking by 6s:\n\t\t0x10003 no-osd seek 6</string>
-
+    <string name="pref_gesture_custom_helptext">Custom help text</string>
     <string name="pref_video_upscale_title">Upscaling filter</string>
-
     <string name="pref_video_downscale_title">Downscaling filter</string>
-
     <string name="pref_video_debanding_title">Debanding</string>
     <string name="pref_video_debanding_summary">Select video debanding mode.</string>
-
     <string name="pref_video_interpolation_title">Interpolation</string>
     <string name="pref_video_interpolation_message">Reduce judder caused by mismatched video FPS and display refresh rate.</string>
     <string name="pref_video_interpolation_sync_default" translatable="false">audio</string>
-
     <string name="pref_video_tscale_title">Temporal interpolation filter</string>
     <string name="pref_video_tscale_summary">Select the filter used for interpolating the temporal axis (frames).</string>
     <string name="pref_video_tscale_message">These settings only take effect if interpolation is enabled above.</string>
-
     <string name="pref_video_fastdecode_title">Low-quality video decoding</string>
-    <string name="pref_video_fastdecode_summary">Trades quality for performance and thus fluent playback.\n<b>REDUCES QUALITY A LOT</b></string>
-
+    <string name="pref_video_fastdecode_summary">Trades quality for performance and thus fluent playback.</string>
     <string name="pref_ignore_audio_focus_title">Ignore audio focus</string>
     <string name="pref_ignore_audio_focus_summary">Do not pause playback or reduce volume when other applications play audio at the same time.</string>
-
     <string name="pref_stats_mode_title">Show stats</string>
     <string name="pref_stats_mode_summary">Choose which statistics are displayed</string>
-
     <string name="pref_gpu_debug_title">Enable OpenGL debugging</string>
-
     <string name="pref_gpu_next_title">Use gpu-next</string>
     <string name="pref_gpu_next_summary">Use new video rendering backend, based on libplacebo.</string>
-
     <string name="pref_version_info">Version information</string>
-
     <string name="pref_edit_mpv_conf">Edit mpv.conf</string>
     <string name="pref_edit_mpv_conf_message">You can directly edit mpv\'s configuration here.</string>
-
     <string name="pref_edit_input_conf">Edit input.conf</string>
-    <string name="pref_edit_input_conf_message">You can edit input.conf here, this is mainly useful for TV remotes and keyboards.\n\nImportant: mpv-android has some hardcoded keys which can\'t be redefined here, e.g. \'j\' to cycle subtitles.</string>
-
-    <!-- Strings used in Settings dialog preferences -->
+    <string name="pref_edit_input_conf_message">You can edit input.conf here.</string>
     <string name="scaler_filter">Filter function</string>
     <string name="scaler_param1">Param 1</string>
     <string name="scaler_param2">Param 2</string>
     <string name="interpolation_switch">Enable interpolation</string>
     <string name="interpolation_video_sync">Video sync</string>
-
-    <!-- File picker -->
     <string name="nnf_name">Name</string>
     <string name="nnf_permission_external_write_denied">Permission to access file system denied</string>
 
-    <!-- TVBox 电视定制专用词条 (保留全部定制功能) -->
+    <!-- TVBox 专用词条 -->
     <string name="btn_skip_intro">设片头</string>
     <string name="btn_skip_outro">设片尾</string>
     <string name="toast_intro_set">已记录片头跳过点：%s (长按清除)</string>
@@ -221,8 +169,7 @@
     <string name="aspect_16_9">16:9</string>
     <string name="aspect_4_3">4:3</string>
     <string name="aspect_fill">拉伸全屏</string>
-    <string name="aspect_original">原始画面</string>
-    <string name="aspect_crop">裁剪填充</string>
+    <string name="aspect_crop">裁切填充</string>
     <string name="btn_aspect_ratio">画面比例</string>
     <string name="btn_subtitle_settings">字幕</string>
     <string name="btn_audio_track">音轨</string>
