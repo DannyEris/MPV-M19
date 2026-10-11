@@ -37,6 +37,19 @@
             android:orientation="horizontal">
 
             <Button
+                android:id="@+id/btn_decoder"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/tv_btn_focus"
+                android:focusable="true"
+                android:minWidth="0dp"
+                android:paddingHorizontal="10dp"
+                android:text="解码: HW+"
+                android:textColor="@android:color/white"
+                android:textSize="12sp" />
+
+            <Button
                 android:id="@+id/btn_hdr_mode"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
