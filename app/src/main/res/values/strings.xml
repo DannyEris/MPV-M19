@@ -166,6 +166,7 @@
     <string name="hdr_on">开启(SDR)</string>
     <string name="hdr_off">关闭</string>
     <string name="aspect_default">默认比例</string>
+    <string name="aspect_original">Original</string>
     <string name="aspect_16_9">16:9</string>
     <string name="aspect_4_3">4:3</string>
     <string name="aspect_fill">拉伸全屏</string>
