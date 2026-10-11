@@ -300,7 +300,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         skipOutroSec = sharedPrefs.getInt("outro_${videoMemoryKey.hashCode()}", 0)
         updateIntroOutroButtonsText()
 
-        // 综合提取 TVBox 请求头（优先注入 URL 提取出的参数）
+        // 综合提取 TVBox 请求头
         val headersMap = TreeMap<String, String>(java.lang.String.CASE_INSENSITIVE_ORDER)
         headersMap.putAll(urlExtractedHeaders)
 
@@ -426,6 +426,12 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
 
         binding.btnDecoder.setOnClickListener {
             cycleDecoder()
+            resetHideControlsTimer()
+        }
+
+        // 重点：顶部快捷键支持一键呼出 / 关闭 MPV 原生统计面板
+        binding.btnStats.setOnClickListener {
+            MPVLib.command(arrayOf("script-binding", "stats/display-stats-toggle"))
             resetHideControlsTimer()
         }
 
@@ -1049,7 +1055,12 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                         return true
                     }
                 }
-                // 3. 左右方向键：短按 10 秒 / 长按平滑加速，绝不弹出面板
+                // 3. INFO 键：支持一键开关 OSD 统计信息浮层
+                KeyEvent.KEYCODE_INFO, KeyEvent.KEYCODE_GUIDE -> {
+                    MPVLib.command(arrayOf("script-binding", "stats/display-stats-toggle"))
+                    return true
+                }
+                // 4. 左右方向键：短按 10 秒 / 长按平滑加速，绝不弹出面板
                 KeyEvent.KEYCODE_DPAD_LEFT -> {
                     if (!isControlsShowing) {
                         return handleDpadSeek(isForward = false, event = event)
