@@ -9,7 +9,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 顶部控制栏 -->
+    <!-- 顶部状态栏：仅保留 解码模式 与 HDR转SDR 两个按钮 -->
     <LinearLayout
         android:id="@+id/top_controls"
         android:layout_width="match_parent"
@@ -40,11 +40,11 @@
                 android:id="@+id/btn_decoder"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
-                android:layout_marginEnd="6dp"
+                android:layout_marginEnd="8dp"
                 android:background="@drawable/tv_btn_focus"
                 android:focusable="true"
                 android:minWidth="0dp"
-                android:paddingHorizontal="10dp"
+                android:paddingHorizontal="12dp"
                 android:text="解码: HW"
                 android:textColor="@android:color/white"
                 android:textSize="12sp" />
@@ -53,82 +53,17 @@
                 android:id="@+id/btn_hdr_mode"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
-                android:layout_marginEnd="6dp"
                 android:background="@drawable/tv_btn_focus"
                 android:focusable="true"
                 android:minWidth="0dp"
-                android:paddingHorizontal="10dp"
+                android:paddingHorizontal="12dp"
                 android:text="@string/hdr_to_sdr"
-                android:textColor="@android:color/white"
-                android:textSize="12sp" />
-
-            <Button
-                android:id="@+id/btn_aspect_ratio"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:layout_marginEnd="6dp"
-                android:background="@drawable/tv_btn_focus"
-                android:focusable="true"
-                android:minWidth="0dp"
-                android:paddingHorizontal="10dp"
-                android:text="@string/aspect_default"
-                android:textColor="@android:color/white"
-                android:textSize="12sp" />
-
-            <Button
-                android:id="@+id/speed_btn"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:layout_marginEnd="6dp"
-                android:background="@drawable/tv_btn_focus"
-                android:focusable="true"
-                android:minWidth="0dp"
-                android:paddingHorizontal="10dp"
-                android:text="1.0x"
-                android:textColor="@android:color/white"
-                android:textSize="12sp" />
-
-            <Button
-                android:id="@+id/btn_sub_settings"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:layout_marginEnd="6dp"
-                android:background="@drawable/tv_btn_focus"
-                android:focusable="true"
-                android:minWidth="0dp"
-                android:paddingHorizontal="10dp"
-                android:text="@string/btn_subtitle_settings"
-                android:textColor="@android:color/white"
-                android:textSize="12sp" />
-
-            <Button
-                android:id="@+id/btn_audio_track"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:layout_marginEnd="6dp"
-                android:background="@drawable/tv_btn_focus"
-                android:focusable="true"
-                android:minWidth="0dp"
-                android:paddingHorizontal="10dp"
-                android:text="@string/btn_audio_track"
-                android:textColor="@android:color/white"
-                android:textSize="12sp" />
-
-            <Button
-                android:id="@+id/btn_video_track"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:background="@drawable/tv_btn_focus"
-                android:focusable="true"
-                android:minWidth="0dp"
-                android:paddingHorizontal="10dp"
-                android:text="@string/btn_video_track"
                 android:textColor="@android:color/white"
                 android:textSize="12sp" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 底部控制栏 -->
+    <!-- 底部控制栏：包含进度条与整排横向功能按钮 -->
     <LinearLayout
         android:id="@+id/controls"
         android:layout_width="match_parent"
@@ -139,6 +74,7 @@
         android:padding="12dp"
         android:visibility="gone">
 
+        <!-- 播放进度控制条 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -170,51 +106,173 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
-        <LinearLayout
+        <!-- 底部功能按钮横向容器（自动支持超出滚动，避免大屏小屏挤压） -->
+        <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:scrollbars="none">
 
-            <Button
-                android:id="@+id/play_btn"
+            <LinearLayout
                 android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:layout_marginEnd="10dp"
-                android:background="@drawable/tv_btn_focus"
-                android:focusable="true"
-                android:minWidth="0dp"
-                android:paddingHorizontal="16dp"
-                android:text="@string/btn_play"
-                android:textColor="@android:color/white"
-                android:textSize="13sp" />
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <Button
-                android:id="@+id/btn_intro"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:layout_marginEnd="10dp"
-                android:background="@drawable/tv_btn_focus"
-                android:focusable="true"
-                android:minWidth="0dp"
-                android:paddingHorizontal="12dp"
-                android:text="@string/btn_skip_intro"
-                android:textColor="@android:color/white"
-                android:textSize="12sp" />
+                <!-- 1. 暂停/播放 -->
+                <Button
+                    android:id="@+id/play_btn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
+                    android:focusable="true"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="12dp"
+                    android:text="@string/btn_play"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
 
-            <Button
-                android:id="@+id/btn_outro"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:background="@drawable/tv_btn_focus"
-                android:focusable="true"
-                android:minWidth="0dp"
-                android:paddingHorizontal="12dp"
-                android:text="@string/btn_skip_outro"
-                android:textColor="@android:color/white"
-                android:textSize="12sp" />
-        </LinearLayout>
+                <!-- 2. 默认 (画面比例切换) -->
+                <Button
+                    android:id="@+id/btn_aspect_ratio"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
+                    android:focusable="true"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="@string/aspect_default"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <!-- 3. 放大 -->
+                <Button
+                    android:id="@+id/btn_zoom_in"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
+                    android:focusable="true"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="@string/btn_zoom_in"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <!-- 4. 重置 (缩放重置) -->
+                <Button
+                    android:id="@+id/btn_zoom_reset"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
+                    android:focusable="true"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="@string/btn_zoom_reset"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <!-- 5. 缩小 -->
+                <Button
+                    android:id="@+id/btn_zoom_out"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
+                    android:focusable="true"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="@string/btn_zoom_out"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <!-- 6. 1.0X (倍速) -->
+                <Button
+                    android:id="@+id/speed_btn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
+                    android:focusable="true"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="1.0x"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <!-- 7. 字幕 -->
+                <Button
+                    android:id="@+id/btn_sub_settings"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
+                    android:focusable="true"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="@string/btn_subtitle_settings"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <!-- 8. 音轨 -->
+                <Button
+                    android:id="@+id/btn_audio_track"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
+                    android:focusable="true"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="@string/btn_audio_track"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <!-- 9. 视轨 -->
+                <Button
+                    android:id="@+id/btn_video_track"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
+                    android:focusable="true"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="@string/btn_video_track"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <!-- 10. 片头 -->
+                <Button
+                    android:id="@+id/btn_intro"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/tv_btn_focus"
+                    android:focusable="true"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="@string/btn_skip_intro"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+
+                <!-- 11. 片尾 -->
+                <Button
+                    android:id="@+id/btn_outro"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:background="@drawable/tv_btn_focus"
+                    android:focusable="true"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="@string/btn_skip_outro"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </HorizontalScrollView>
     </LinearLayout>
 
 </FrameLayout>
