@@ -158,7 +158,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         binding.player.initialize(configDir, cacheDir)
         MPVLib.addObserver(this)
 
-        // 1. 初始化本地文件日志 (内部存储根目录 mpv.log)
+        // 1. 初始化本地全量详细日志 (存放在内部存储根目录 mpv.log)
         val sdcardDir = Environment.getExternalStorageDirectory()
         val logFile = if (sdcardDir != null && sdcardDir.exists()) {
             File(sdcardDir, "mpv.log")
@@ -172,18 +172,19 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
 
         MPVLib.command(arrayOf("apply-profile", "fast"))
 
-        // 2. 硬件解码配置：针对 S912 芯片锁定稳妥的 mediacodec-copy 模式
+        // 2. 硬件解码配置：针对 S912 芯片锁定最稳妥的 mediacodec-copy
         MPVLib.setPropertyString("hwdec", "mediacodec-copy")
         MPVLib.setPropertyString("hwdec-codecs", "all")
         MPVLib.setPropertyInt("hwdec-extra-frames", 16)
 
-        // 3. 核心修复：合法的 vo 丢帧参数；恢复默认 autosync=0，时钟发生漂移时瞬时对齐，杜绝延迟滚雪球
-        MPVLib.setPropertyString("framedrop", "vo")
+        // 3. 核心修复：合法的 decoder+vo 双层丢帧；关闭垂直同步等待阻塞；维持以音频为基准时钟
+        MPVLib.setPropertyString("framedrop", "decoder+vo")
         MPVLib.setPropertyString("hr-seek", "no")
         MPVLib.setPropertyString("hr-seek-framedrop", "no")
         MPVLib.setPropertyString("video-sync", "audio")
+        MPVLib.setPropertyString("swapinterval", "0") // 杜绝由于轻微延时被强制锁死为 30Hz
 
-        // 4. 音频输出：强制标准 16-bit 整数 PCM 立体声，消除系统混音器时钟抖动
+        // 4. 音频输出通道：强制标准 16-bit 整数立体声，彻底消除多声道浮点混音时钟漂移
         MPVLib.setPropertyString("audio-format", "s16")
         MPVLib.setPropertyString("audio-channels", "stereo")
         MPVLib.setPropertyString("ao", "audiotrack")
@@ -193,7 +194,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("keepaspect", "yes")
         MPVLib.setPropertyDouble("panscan", 0.0)
 
-        // 6. 极速渲染管线与优化
+        // 6. 极速渲染管线调优
         MPVLib.setPropertyString("opengl-pbo", "no")
         MPVLib.setPropertyString("scale", "bilinear")
         MPVLib.setPropertyString("cscale", "bilinear")
@@ -214,9 +215,8 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("tone-mapping", "auto")
         MPVLib.setPropertyString("hdr-compute-peak", "no")
 
-        // 8. 减轻高帧率下的字幕栅格化开销
+        // 8. 字幕渲染开销优化
         MPVLib.setPropertyString("sub-font-provider", "none")
-        MPVLib.setPropertyString("sub-ass-vsfilter-blur-compat", "no")
 
         // 9. 缓存机制
         MPVLib.setPropertyString("cache", "yes")
@@ -407,29 +407,26 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             ?: intent.getStringExtra("cookie")
         if (!explicitCookie.isNullOrEmpty()) headersMap["Cookie"] = explicitCookie
 
-        // 核心修复：检测是否为本地 Kaiser 代理服务
-        val isLocalHost = currentFilePath.contains("127.0.0.1", ignoreCase = true) ||
-                currentFilePath.contains("localhost", ignoreCase = true)
+        // 识别百度网盘特征
+        val isBaidu = currentFilePath.contains("baidupcs.com", ignoreCase = true) ||
+                currentFilePath.contains("key=baidupan", ignoreCase = true) ||
+                currentFilePath.contains("type=baidupan", ignoreCase = true)
 
         val defaultBrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
-        // 核心逻辑：若为本地代理且未传入 UA，不注入桌面浏览器 UA，防止破坏百度 DLNA 接口校验
-        val passedUa = headersMap["User-Agent"]
-        val finalUa = when {
-            !passedUa.isNullOrEmpty() -> passedUa
-            isLocalHost -> "" // 本地代理保持纯净，交由代理端与服务端原生协商
-            else -> defaultBrowserUa
+        // 1. User-Agent：若无显式传入，百度网盘走专用网盘客户端标识，其他走主流浏览器 UA
+        var finalUa = headersMap["User-Agent"]
+        if (finalUa.isNullOrEmpty()) {
+            finalUa = if (isBaidu) {
+                "netdisk;11.12.3;PC;PC-Windows;10.0.19042;WindowsBaiduYunGuanJia"
+            } else {
+                defaultBrowserUa
+            }
         }
+        MPVLib.setPropertyString("user-agent", finalUa)
+        writeAppDebugLog("Applied User-Agent: $finalUa")
 
-        if (finalUa.isNotEmpty()) {
-            MPVLib.setPropertyString("user-agent", finalUa)
-            writeAppDebugLog("Applied User-Agent: $finalUa")
-        } else {
-            // 清空 UA 设置，让 FFmpeg 不附带篡改标头请求 127.0.0.1
-            MPVLib.setPropertyString("user-agent", "")
-            writeAppDebugLog("User-Agent left unset for local proxy.")
-        }
-
+        // 2. Referer 机制
         val customRef = headersMap["Referer"]
         if (!customRef.isNullOrEmpty()) {
             MPVLib.setPropertyString("referrer", customRef)
@@ -438,9 +435,10 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             MPVLib.setPropertyString("referrer", "")
         }
 
+        // 3. 构建全套请求标头（核心修复：绝不剔除 Referer，确保瓜子等站源的子 TS 切片全部带上 Referer 防盗链）
         val mpvHeaderList = mutableListOf<String>()
         for ((k, v) in headersMap) {
-            if (!k.equals("User-Agent", ignoreCase = true) && !k.equals("Referer", ignoreCase = true)) {
+            if (!k.equals("User-Agent", ignoreCase = true)) {
                 val safeVal = v.replace(",", "\\,")
                 mpvHeaderList.add("$k: $safeVal")
             }
@@ -970,6 +968,20 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 MPVLib.observeProperty("time-pos", MpvFormat.MPV_FORMAT_INT64)
                 MPVLib.observeProperty("duration", MpvFormat.MPV_FORMAT_INT64)
                 MPVLib.observeProperty("pause", MpvFormat.MPV_FORMAT_FLAG)
+
+                // 核心修复：动态检测片源帧率，若超过 45fps（如 50/60fps）则前置丢弃非参考 B 帧，大幅减轻总线负荷
+                val reportedFps = MPVLib.getPropertyDouble("container-fps")
+                    ?: MPVLib.getPropertyDouble("estimated-vf-fps")
+                    ?: 0.0
+                writeAppDebugLog("Video File Loaded. Detected FPS: $reportedFps")
+
+                if (reportedFps > 45.0) {
+                    MPVLib.setPropertyString("vd-lavc-skipframe", "nonref")
+                    MPVLib.command(arrayOf("seek", "0", "relative"))
+                    writeAppDebugLog("Activated 60fps Optimization: vd-lavc-skipframe=nonref + seek flush")
+                } else {
+                    MPVLib.setPropertyString("vd-lavc-skipframe", "default")
+                }
 
                 val count = MPVLib.getPropertyInt("track-list/count") ?: 0
                 for (i in 0 until count) {
