@@ -161,7 +161,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         binding.player.initialize(configDir, cacheDir)
         MPVLib.addObserver(this)
 
-        // 1. 初始化本地文件日志捕获系统 (优先保存在 /sdcard/mpv.log，小白文件管理器直读)
+        // 1. 初始化本地文件日志捕获系统 (优先保存在 /sdcard/mpv.log)
         val sdcardDir = Environment.getExternalStorageDirectory()
         val logFile = if (sdcardDir != null && sdcardDir.exists()) {
             File(sdcardDir, "mpv.log")
@@ -1116,7 +1116,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                         return handleDpadSeek(isForward = false, event = event)
                     }
                 }
-                KeyEvent.KEYCODE_RIGHT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                KeyEvent.KEYCODE_DPAD_RIGHT -> {
                     if (!isControlsShowing) {
                         return handleDpadSeek(isForward = true, event = event)
                     }
