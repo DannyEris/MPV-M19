@@ -146,15 +146,17 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("hwdec-codecs", "all")
         MPVLib.setPropertyInt("hwdec-extra-frames", 16) // 扩大帧缓冲池至 16 帧，杜绝帧饥饿
 
-        // 3. 关键修复：音频时钟平滑与增大缓冲，彻底消除 DTS/多声道时钟抖动引发的 output 误判强丢帧
-        MPVLib.setPropertyString("ao", "audiotrack")
-        MPVLib.setPropertyDouble("audio-buffer", 0.3)   // 扩大至 300ms 音频缓冲，稳定 AudioTrack
-        MPVLib.setPropertyInt("autosync", 30)           // 平滑音画同步抖动，吸收系统时钟汇报误差
-        MPVLib.setPropertyString("video-sync", "audio")
+        // 3. 核心修复：60fps 场景主动减负，解码端前置丢弃非参考帧，减轻显存总线争抢，阻断 A-V 延迟累积
+        MPVLib.setPropertyString("framedrop", "decoder")
+        MPVLib.setPropertyString("vd-lavc-skipframe", "nonref")
+        MPVLib.setPropertyString("hr-seek-framedrop", "yes")
 
-        // 4. 关键修复：禁止激进丢帧，改用保底的 vo 丢帧，确保芯片解出来的帧全部送显上屏
-        MPVLib.setPropertyString("framedrop", "vo")
-        MPVLib.setPropertyString("hr-seek-framedrop", "no")
+        // 4. 音频下混立体声与时钟基准对齐：避免 Android 5.1 多声道 DTS 浮点混音时钟抖动引发的脱节
+        MPVLib.setPropertyString("audio-channels", "stereo")
+        MPVLib.setPropertyString("ao", "audiotrack")
+        MPVLib.setPropertyDouble("audio-buffer", 0.2)
+        MPVLib.setPropertyInt("autosync", 1)
+        MPVLib.setPropertyString("video-sync", "audio")
 
         // 5. 比例保持机制：严格禁止 gpu-dumb-mode，初始化锁定原片比例
         MPVLib.setPropertyString("keepaspect", "yes")
@@ -190,13 +192,15 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("demuxer-hysteresis-secs", "5")
         MPVLib.setPropertyString("demuxer-thread", "yes")
 
-        // 9. 全局 TLS 兼容配置（解决 Android 5.1 证书过期问题）
+        // 9. 协议层重连与证书校验忽略（解决 Android 5.1 证书过期与流断开重连）
         val caFile = File(configDir, "cacert.pem")
         if (caFile.exists()) {
             MPVLib.setPropertyString("tls-ca-file", caFile.absolutePath)
         }
         MPVLib.setPropertyString("tls-verify", "no")
         MPVLib.setPropertyString("network-timeout", "20")
+        MPVLib.setPropertyString("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,tls_verify=0")
+        MPVLib.setPropertyString("demuxer-lavf-o", "tls_verify=0")
 
         // 初始化 HDR 状态
         hdrMode = sharedPrefs.getInt("hdr_to_sdr_mode", 0)
@@ -546,6 +550,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             updateIntroOutroButtonsText()
             Toast.makeText(this, getString(R.string.toast_outro_set, formatTime(skipOutroSec)), Toast.LENGTH_SHORT).show()
             resetHideControlsTimer()
+            true
         }
         binding.btnOutro.setOnLongClickListener {
             skipOutroSec = 0
@@ -1071,7 +1076,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                         return handleDpadSeek(isForward = false, event = event)
                     }
                 }
-                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                KeyEvent.KEYCODE_RIGHT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
                     if (!isControlsShowing) {
                         return handleDpadSeek(isForward = true, event = event)
                     }
