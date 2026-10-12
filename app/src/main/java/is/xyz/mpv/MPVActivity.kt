@@ -23,6 +23,7 @@ import `is`.xyz.mpv.MPVLib.MpvFormat
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -158,7 +159,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         binding.player.initialize(configDir, cacheDir)
         MPVLib.addObserver(this)
 
-        // 1. 初始化本地全量详细日志 (存放在内部存储根目录 mpv.log)
+        // 1. 初始化全量日志文件 (存储在 /sdcard/mpv.log)
         val sdcardDir = Environment.getExternalStorageDirectory()
         val logFile = if (sdcardDir != null && sdcardDir.exists()) {
             File(sdcardDir, "mpv.log")
@@ -172,23 +173,23 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
 
         MPVLib.command(arrayOf("apply-profile", "fast"))
 
-        // 2. 硬件解码配置：针对 S912 芯片锁定最稳妥的 mediacodec-copy
+        // 2. 硬件解码配置：针对 S912 芯片锁定稳妥的 mediacodec-copy
         MPVLib.setPropertyString("hwdec", "mediacodec-copy")
         MPVLib.setPropertyString("hwdec-codecs", "all")
-        MPVLib.setPropertyInt("hwdec-extra-frames", 16)
+        MPVLib.setPropertyInt("hwdec-extra-frames", 6) // 将缓冲池由 16 缩减为 6，降低总线排队延迟
 
-        // 3. 核心修复：合法的 decoder+vo 双层丢帧；关闭垂直同步等待阻塞；维持以音频为基准时钟
-        MPVLib.setPropertyString("framedrop", "decoder+vo")
+        // 3. 核心音画同步与丢帧控制：允许开播与寻道时丢帧追赶；禁止开播时阻塞
+        MPVLib.setPropertyString("framedrop", "vo")
         MPVLib.setPropertyString("hr-seek", "no")
-        MPVLib.setPropertyString("hr-seek-framedrop", "no")
+        MPVLib.setPropertyString("hr-seek-framedrop", "yes") // 允许寻道期间丢弃过渡帧，杜绝开播产生 10 秒初始延迟
         MPVLib.setPropertyString("video-sync", "audio")
-        MPVLib.setPropertyString("swapinterval", "0") // 杜绝由于轻微延时被强制锁死为 30Hz
 
-        // 4. 音频输出通道：强制标准 16-bit 整数立体声，彻底消除多声道浮点混音时钟漂移
+        // 4. 音频输出：成熟的 16-bit 整数立体声，彻底根治多声道时钟漂移
         MPVLib.setPropertyString("audio-format", "s16")
         MPVLib.setPropertyString("audio-channels", "stereo")
         MPVLib.setPropertyString("ao", "audiotrack")
         MPVLib.setPropertyDouble("audio-buffer", 0.2)
+        MPVLib.setPropertyString("audio-pitch-correction", "no") // 关闭变调运算，释放 A53 CPU 算力
 
         // 5. 比例保持机制
         MPVLib.setPropertyString("keepaspect", "yes")
@@ -215,19 +216,19 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("tone-mapping", "auto")
         MPVLib.setPropertyString("hdr-compute-peak", "no")
 
-        // 8. 字幕渲染开销优化
+        // 8. 彻底优化 OSD 渲染开销
         MPVLib.setPropertyString("sub-font-provider", "none")
 
-        // 9. 缓存机制
+        // 9. 内存与缓存调优：将缓存降至 64MB，避免 128MB 撑满 2GB 内存导致总线带宽被系统内存回收抢占
         MPVLib.setPropertyString("cache", "yes")
-        MPVLib.setPropertyString("cache-secs", "30")
-        MPVLib.setPropertyString("demuxer-max-bytes", "${128 * 1024 * 1024}")
-        MPVLib.setPropertyString("demuxer-max-back-bytes", "${32 * 1024 * 1024}")
-        MPVLib.setPropertyString("demuxer-readahead-secs", "30")
-        MPVLib.setPropertyString("demuxer-hysteresis-secs", "5")
+        MPVLib.setPropertyString("cache-secs", "20")
+        MPVLib.setPropertyString("demuxer-max-bytes", "${64 * 1024 * 1024}")
+        MPVLib.setPropertyString("demuxer-max-back-bytes", "${16 * 1024 * 1024}")
+        MPVLib.setPropertyString("demuxer-readahead-secs", "15")
+        MPVLib.setPropertyString("demuxer-hysteresis-secs", "3")
         MPVLib.setPropertyString("demuxer-thread", "yes")
 
-        // 10. 网络连接优化
+        // 10. 网络与 TLS 优化
         val caFile = File(configDir, "cacert.pem")
         if (caFile.exists()) {
             MPVLib.setPropertyString("tls-ca-file", caFile.absolutePath)
@@ -317,6 +318,22 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
 
         val (cleanedPath, urlExtractedHeaders) = parseUrlAndHeaders(path)
         currentFilePath = cleanedPath
+
+        // 核心突破 1：针对百度网盘 Kaiser 代理（端口 38109 报 502 问题），自动解构提取真实的 DLNA 直链
+        if (currentFilePath.contains("127.0.0.1") && (currentFilePath.contains("baidupcs.com") || currentFilePath.contains("key=baidupan"))) {
+            try {
+                val parsedUri = Uri.parse(currentFilePath)
+                val directBaiduUrl = parsedUri.getQueryParameter("url")
+                if (!directBaiduUrl.isNullOrEmpty()) {
+                    val decodedUrl = URLDecoder.decode(directBaiduUrl, "UTF-8")
+                    writeAppDebugLog("Baidu Kaiser Bypass: Direct PCS URL extracted: $decodedUrl")
+                    currentFilePath = decodedUrl
+                }
+            } catch (e: Exception) {
+                writeAppDebugLog("Baidu URL extraction failed: ${e.message}")
+            }
+        }
+
         writeAppDebugLog("Cleaned Target Path: $currentFilePath")
 
         introSkipped = false
@@ -407,26 +424,20 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             ?: intent.getStringExtra("cookie")
         if (!explicitCookie.isNullOrEmpty()) headersMap["Cookie"] = explicitCookie
 
-        // 识别百度网盘特征
         val isBaidu = currentFilePath.contains("baidupcs.com", ignoreCase = true) ||
-                currentFilePath.contains("key=baidupan", ignoreCase = true) ||
-                currentFilePath.contains("type=baidupan", ignoreCase = true)
+                currentFilePath.contains("key=baidupan", ignoreCase = true)
 
         val defaultBrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
-        // 1. User-Agent：若无显式传入，百度网盘走专用网盘客户端标识，其他走主流浏览器 UA
+        // 1. 设置专属 User-Agent
         var finalUa = headersMap["User-Agent"]
         if (finalUa.isNullOrEmpty()) {
-            finalUa = if (isBaidu) {
-                "netdisk;11.12.3;PC;PC-Windows;10.0.19042;WindowsBaiduYunGuanJia"
-            } else {
-                defaultBrowserUa
-            }
+            finalUa = if (isBaidu) "themisdlna" else defaultBrowserUa
         }
         MPVLib.setPropertyString("user-agent", finalUa)
         writeAppDebugLog("Applied User-Agent: $finalUa")
 
-        // 2. Referer 机制
+        // 2. 设置专属 Referer
         val customRef = headersMap["Referer"]
         if (!customRef.isNullOrEmpty()) {
             MPVLib.setPropertyString("referrer", customRef)
@@ -435,10 +446,11 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             MPVLib.setPropertyString("referrer", "")
         }
 
-        // 3. 构建全套请求标头（核心修复：绝不剔除 Referer，确保瓜子等站源的子 TS 切片全部带上 Referer 防盗链）
+        // 3. 核心突破 2：构建请求头列表时，严格排除 User-Agent 与 Referer！
+        // 彻底解决瓜子站源由于 HTTP 头部出现重复两行 Referer 而被 CDN 判定为非法请求、强行跳防盗链视频的 Bug！
         val mpvHeaderList = mutableListOf<String>()
         for ((k, v) in headersMap) {
-            if (!k.equals("User-Agent", ignoreCase = true)) {
+            if (!k.equals("User-Agent", ignoreCase = true) && !k.equals("Referer", ignoreCase = true)) {
                 val safeVal = v.replace(",", "\\,")
                 mpvHeaderList.add("$k: $safeVal")
             }
@@ -447,6 +459,8 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             val joined = mpvHeaderList.joinToString(",")
             MPVLib.setPropertyString("http-header-fields", joined)
             writeAppDebugLog("Applied http-header-fields: $joined")
+        } else {
+            MPVLib.setPropertyString("http-header-fields", "")
         }
 
         val startPositionMs = intent.getIntExtra("position", 0).takeIf { it > 0 }?.toLong()
@@ -968,20 +982,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 MPVLib.observeProperty("time-pos", MpvFormat.MPV_FORMAT_INT64)
                 MPVLib.observeProperty("duration", MpvFormat.MPV_FORMAT_INT64)
                 MPVLib.observeProperty("pause", MpvFormat.MPV_FORMAT_FLAG)
-
-                // 核心修复：动态检测片源帧率，若超过 45fps（如 50/60fps）则前置丢弃非参考 B 帧，大幅减轻总线负荷
-                val reportedFps = MPVLib.getPropertyDouble("container-fps")
-                    ?: MPVLib.getPropertyDouble("estimated-vf-fps")
-                    ?: 0.0
-                writeAppDebugLog("Video File Loaded. Detected FPS: $reportedFps")
-
-                if (reportedFps > 45.0) {
-                    MPVLib.setPropertyString("vd-lavc-skipframe", "nonref")
-                    MPVLib.command(arrayOf("seek", "0", "relative"))
-                    writeAppDebugLog("Activated 60fps Optimization: vd-lavc-skipframe=nonref + seek flush")
-                } else {
-                    MPVLib.setPropertyString("vd-lavc-skipframe", "default")
-                }
 
                 val count = MPVLib.getPropertyInt("track-list/count") ?: 0
                 for (i in 0 until count) {
