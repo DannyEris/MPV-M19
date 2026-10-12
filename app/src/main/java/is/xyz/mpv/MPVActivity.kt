@@ -136,12 +136,15 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
 
     private fun writeAppDebugLog(content: String) {
         try {
-            if (logFilePath.isNotEmpty()) {
-                val timeStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(Date())
-                val logFile = File(logFilePath)
-                FileOutputStream(logFile, true).use { out ->
-                    out.write("[$timeStr] [APP_LOG] $content\n".toByteArray(Charsets.UTF_8))
-                }
+            val sdcardDir = Environment.getExternalStorageDirectory()
+            val debugFile = if (sdcardDir != null && sdcardDir.exists()) {
+                File(sdcardDir, "mpv_app.log")
+            } else {
+                File(applicationContext.filesDir, "mpv_app.log")
+            }
+            val timeStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(Date())
+            FileOutputStream(debugFile, true).use { out ->
+                out.write("[$timeStr] $content\n".toByteArray(Charsets.UTF_8))
             }
         } catch (e: Exception) {
             // Ignore log write errors
@@ -155,7 +158,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         binding.player.initialize(configDir, cacheDir)
         MPVLib.addObserver(this)
 
-        // 1. 初始化本地文件日志捕获系统 (存放在内部存储根目录 mpv.log)
+        // 1. 初始化本地文件日志 (内部存储根目录 mpv.log)
         val sdcardDir = Environment.getExternalStorageDirectory()
         val logFile = if (sdcardDir != null && sdcardDir.exists()) {
             File(sdcardDir, "mpv.log")
@@ -166,21 +169,21 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
 
         MPVLib.setPropertyString("log-file", logFilePath)
         MPVLib.setPropertyString("msg-level", "all=v")
-        writeAppDebugLog("=== MPVActivity Initialized. Log file: $logFilePath ===")
 
         MPVLib.command(arrayOf("apply-profile", "fast"))
 
-        // 2. 硬件解码基础配置 (S912/Android 5.1 稳定使用 mediacodec-copy)
+        // 2. 硬件解码配置：针对 S912 芯片锁定稳妥的 mediacodec-copy 模式
         MPVLib.setPropertyString("hwdec", "mediacodec-copy")
         MPVLib.setPropertyString("hwdec-codecs", "all")
         MPVLib.setPropertyInt("hwdec-extra-frames", 16)
 
-        // 3. 音视频时钟同步：开启双层丢帧机制，严格以音频为基准时钟
-        MPVLib.setPropertyString("framedrop", "yes")
-        MPVLib.setPropertyString("hr-seek-framedrop", "yes")
+        // 3. 核心修复：合法的 vo 丢帧参数；恢复默认 autosync=0，时钟发生漂移时瞬时对齐，杜绝延迟滚雪球
+        MPVLib.setPropertyString("framedrop", "vo")
+        MPVLib.setPropertyString("hr-seek", "no")
+        MPVLib.setPropertyString("hr-seek-framedrop", "no")
         MPVLib.setPropertyString("video-sync", "audio")
 
-        // 4. 音频处理通道：强制使用稳定成熟的 16-bit 整数 PCM 立体声输出，彻底根除 Android 5.1 float 混音时钟漂移
+        // 4. 音频输出：强制标准 16-bit 整数 PCM 立体声，消除系统混音器时钟抖动
         MPVLib.setPropertyString("audio-format", "s16")
         MPVLib.setPropertyString("audio-channels", "stereo")
         MPVLib.setPropertyString("ao", "audiotrack")
@@ -190,7 +193,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("keepaspect", "yes")
         MPVLib.setPropertyDouble("panscan", 0.0)
 
-        // 6. 渲染管线调优
+        // 6. 极速渲染管线与优化
         MPVLib.setPropertyString("opengl-pbo", "no")
         MPVLib.setPropertyString("scale", "bilinear")
         MPVLib.setPropertyString("cscale", "bilinear")
@@ -211,7 +214,11 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("tone-mapping", "auto")
         MPVLib.setPropertyString("hdr-compute-peak", "no")
 
-        // 8. 缓存配置
+        // 8. 减轻高帧率下的字幕栅格化开销
+        MPVLib.setPropertyString("sub-font-provider", "none")
+        MPVLib.setPropertyString("sub-ass-vsfilter-blur-compat", "no")
+
+        // 9. 缓存机制
         MPVLib.setPropertyString("cache", "yes")
         MPVLib.setPropertyString("cache-secs", "30")
         MPVLib.setPropertyString("demuxer-max-bytes", "${128 * 1024 * 1024}")
@@ -220,7 +227,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("demuxer-hysteresis-secs", "5")
         MPVLib.setPropertyString("demuxer-thread", "yes")
 
-        // 9. 网络与 TLS 兼容
+        // 10. 网络连接优化
         val caFile = File(configDir, "cacert.pem")
         if (caFile.exists()) {
             MPVLib.setPropertyString("tls-ca-file", caFile.absolutePath)
@@ -230,7 +237,7 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
         MPVLib.setPropertyString("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_delay_max=5,tls_verify=0")
         MPVLib.setPropertyString("demuxer-lavf-o", "tls_verify=0")
 
-        // 初始化 HDR 按钮文本
+        // 初始化 HDR 按钮状态
         hdrMode = sharedPrefs.getInt("hdr_to_sdr_mode", 0)
         applyHdrMode(hdrMode, updateText = true)
     }
@@ -400,15 +407,28 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
             ?: intent.getStringExtra("cookie")
         if (!explicitCookie.isNullOrEmpty()) headersMap["Cookie"] = explicitCookie
 
-        // 核心修复：无论是直连还是 127.0.0.1 Kaiser 代理，只要未传 UA，必须默认赋予标准 PC 浏览器 UA
-        // 彻底杜绝百度 PCS CDN 拦截 pan.baidu.com 或空 UA 导致 Kaiser 代理报 502 Bad Gateway
+        // 核心修复：检测是否为本地 Kaiser 代理服务
+        val isLocalHost = currentFilePath.contains("127.0.0.1", ignoreCase = true) ||
+                currentFilePath.contains("localhost", ignoreCase = true)
+
         val defaultBrowserUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-        var finalUa = headersMap["User-Agent"]
-        if (finalUa.isNullOrEmpty()) {
-            finalUa = defaultBrowserUa
+
+        // 核心逻辑：若为本地代理且未传入 UA，不注入桌面浏览器 UA，防止破坏百度 DLNA 接口校验
+        val passedUa = headersMap["User-Agent"]
+        val finalUa = when {
+            !passedUa.isNullOrEmpty() -> passedUa
+            isLocalHost -> "" // 本地代理保持纯净，交由代理端与服务端原生协商
+            else -> defaultBrowserUa
         }
-        MPVLib.setPropertyString("user-agent", finalUa)
-        writeAppDebugLog("Applied User-Agent: $finalUa")
+
+        if (finalUa.isNotEmpty()) {
+            MPVLib.setPropertyString("user-agent", finalUa)
+            writeAppDebugLog("Applied User-Agent: $finalUa")
+        } else {
+            // 清空 UA 设置，让 FFmpeg 不附带篡改标头请求 127.0.0.1
+            MPVLib.setPropertyString("user-agent", "")
+            writeAppDebugLog("User-Agent left unset for local proxy.")
+        }
 
         val customRef = headersMap["Referer"]
         if (!customRef.isNullOrEmpty()) {
@@ -950,23 +970,6 @@ class MPVActivity : AppCompatActivity(), MPVLib.EventObserver {
                 MPVLib.observeProperty("time-pos", MpvFormat.MPV_FORMAT_INT64)
                 MPVLib.observeProperty("duration", MpvFormat.MPV_FORMAT_INT64)
                 MPVLib.observeProperty("pause", MpvFormat.MPV_FORMAT_FLAG)
-
-                // 核心突破：动态帧率自适应调优（彻底消除 60fps 场景下 A-V 持续飙升漂移）
-                val reportedFps = MPVLib.getPropertyDouble("container-fps")
-                    ?: MPVLib.getPropertyDouble("estimated-vf-fps")
-                    ?: 0.0
-                writeAppDebugLog("Video File Loaded. Detected FPS: $reportedFps")
-
-                if (reportedFps > 45.0) {
-                    // 当检测到 60fps / 50fps 高帧率视频时：前置跳过非参考 B 帧，将硬解芯片与总线拷贝开销平滑压降至 30fps
-                    // 总线带宽消耗骤降 50%，芯片处理能力绰绰有余，从源头杜绝 A-V 延迟累积
-                    MPVLib.setPropertyString("vd-lavc-skipframe", "nonref")
-                    writeAppDebugLog("Applied High-FPS Profile: vd-lavc-skipframe=nonref (60fps -> 30fps smooth sync)")
-                } else {
-                    // 对于 24fps / 25fps / 30fps 常规电影：保持原始帧率，逐帧完整渲染
-                    MPVLib.setPropertyString("vd-lavc-skipframe", "default")
-                    writeAppDebugLog("Applied Standard-FPS Profile: vd-lavc-skipframe=default (Full fidelity)")
-                }
 
                 val count = MPVLib.getPropertyInt("track-list/count") ?: 0
                 for (i in 0 until count) {
